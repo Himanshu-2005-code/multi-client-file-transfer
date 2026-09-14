@@ -195,6 +195,29 @@ distinct, reviewed chunk that was tested before moving to the next.
     describing the COMMAND|FIELD|... protocol I just implemented."* →
     `docs/protocol_spec.md`
 
+11. (Bug investigation, not a generation prompt) Diagnosed a reported
+    "disconnected from server" message appearing after a normal `logout`.
+    Root cause: the client's reader thread noticed the server closing its
+    socket right after `LOGOUT_OK` and misreported it as an unexpected
+    drop. Fixed with an `expected_close` flag, set *before* `LOGOUT` is
+    sent (not after the reply, which raced against the server's close).
+    Also added a try/except around the server's per-command dispatch so
+    any future unexpected exception prints a full traceback to the server
+    console and reports `ERROR|SERVER_ERROR` to the client, instead of
+    silently dropping the connection. → `client/client.py`,
+    `server/server.py`
+
+12. *"Add a FILES command to the server (returns comma-separated list of
+    filenames currently in server storage) and a matching `files` command
+    to the client that displays them."* → `server/server.py`,
+    `client/client.py`
+
+13. *"Add an ALLUSERS command to the server that returns every registered
+    account (from users.txt) along with whether each one is currently
+    online or offline, so it's a proper directory, not just
+    currently-connected users like LIST/FILES."* → `server/server.py`,
+    `client/client.py`
+
 Each chunk was compiled and run against a live server before moving to the
 next (see §6 for the concrete verification done). All code was reviewed
 and is understood well enough to be explained command-by-command in the
