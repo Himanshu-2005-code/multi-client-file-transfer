@@ -43,6 +43,7 @@ delimiter or framing — the receiver already knows how many bytes to read.
 | `LOGOUT` | C→S | `LOGOUT` | Gracefully end the session; server closes the connection. |
 | `LIST` | C→S | `LIST` | Request the list of currently online users. |
 | `FILES` | C→S | `FILES` | Request the list of files currently stored on the server (available for `DOWNLOAD`). |
+| `ALLUSERS` | C→S | `ALLUSERS` | Request every registered account (from `users.txt`), each tagged online/offline -- unlike `LIST`, this includes users who aren't currently connected. |
 | `MSG` | C→S | `MSG\|username\|text` | Send a private message to one online user. |
 | `MSG` | S→C | `MSG\|sender\|text` | Delivery of a private message (pushed to the recipient). |
 | `BROADCAST` | C→S | `BROADCAST\|text` | Send a message to every other online user. |
@@ -59,6 +60,7 @@ delimiter or framing — the receiver already knows how many bytes to read.
 | `LOGOUT_OK` | `LOGOUT_OK` | Logout acknowledged; connection will be closed. |
 | `USERS` | `USERS\|name1,name2,...` | Reply to `LIST`. Comma-separated, possibly empty. |
 | `FILES` | `FILES\|file1,file2,...` | Reply to `FILES`. Comma-separated, possibly empty. |
+| `ALLUSERS` | `ALLUSERS\|user1:online,user2:offline,...` | Reply to `ALLUSERS`. Each entry is `username:online` or `username:offline`. |
 | `MSG_OK` | `MSG_OK` | Private message was delivered. |
 | `BROADCAST_OK` | `BROADCAST_OK` | Broadcast was relayed to all other online users. |
 | `READY` | `READY` | Server is ready to receive the raw file bytes for an `UPLOAD` or `SEND`. |
@@ -138,7 +140,19 @@ off the sender's socket and immediately relays them to the target's
 socket. This means the target must be online at the time of the `SEND`
 (offline delivery is out of scope for this assignment).
 
-## 7. Distinguishing Pushes from Replies (Client Design Note)
+## 7. "Active Users" — Design Note
+
+The brief's Server Responsibilities section asks the server to *"maintain
+a list of active users."* That phrase is ambiguous between (a) users
+currently connected and (b) every registered account. Both readings are
+covered here rather than picking one:
+
+- `LIST` returns (a) — who you can actually `MSG` right now, matching how
+  the brief's own `LIST` example is used alongside `MSG`/`BROADCAST`.
+- `ALLUSERS` returns (b) — every account that has ever registered, each
+  tagged `online`/`offline`, for a full directory view.
+
+## 8. Distinguishing Pushes from Replies (Client Design Note)
 
 Because a single TCP connection carries both the replies to commands the
 client itself issued *and* asynchronous pushes from other users, the

@@ -91,6 +91,21 @@ def run_checks():
     r = recv_line(alice)
     check("list contains alice and bob", r[0] == "USERS" and "alice" in r[1] and "bob" in r[1])
 
+    # --- allusers (online + offline) ---
+    dupattempt = connect()
+    send_line(dupattempt, "LOGIN", "charlie", "pw3")
+    r = recv_line(dupattempt)
+    check("charlie login (then goes offline)", r[0] == "LOGIN_OK")
+    send_line(dupattempt, "LOGOUT")
+    recv_line(dupattempt)
+    dupattempt.close()
+
+    send_line(alice, "ALLUSERS")
+    r = recv_line(alice)
+    entries = dict(e.split(":") for e in r[1].split(","))
+    check("allusers lists alice as online", entries.get("alice") == "online")
+    check("allusers lists charlie as offline", entries.get("charlie") == "offline")
+
     # --- private message ---
     send_line(alice, "MSG", "bob", "hello bob")
     r_ok = recv_line(alice)

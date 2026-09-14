@@ -94,6 +94,14 @@ def handle_list(sock):
     send_line(sock, "USERS", ",".join(names))
 
 
+def handle_allusers(sock):
+    all_usernames = sorted(load_users().keys())
+    with clients_lock:
+        online = set(active_clients.keys())
+    entries = [f"{u}:{'online' if u in online else 'offline'}" for u in all_usernames]
+    send_line(sock, "ALLUSERS", ",".join(entries))
+
+
 def handle_files(sock):
     names = sorted(
         f for f in os.listdir(STORAGE_DIR)
@@ -263,6 +271,8 @@ def handle_client(sock, addr):
                     handle_list(sock)
                 elif command == "FILES":
                     handle_files(sock)
+                elif command == "ALLUSERS":
+                    handle_allusers(sock)
                 elif command == "MSG":
                     handle_msg(sock, username, fields)
                 elif command == "BROADCAST":

@@ -103,6 +103,20 @@ def do_list(sock):
         print("Online users:", ", ".join(names) if names else "(none)")
 
 
+def do_allusers(sock):
+    send_line(sock, "ALLUSERS")
+    fields = expect("ALLUSERS")
+    if fields[0] == "ALLUSERS":
+        entries = fields[1].split(",") if fields[1] else []
+        if entries:
+            print("All registered users:")
+            for entry in entries:
+                name, _, status = entry.partition(":")
+                print(f"  {name} ({status})")
+        else:
+            print("All registered users: (none)")
+
+
 def do_files(sock):
     send_line(sock, "FILES")
     fields = expect("FILES")
@@ -189,7 +203,8 @@ def do_send(sock):
 
 HELP = """
 Commands:
-  list                 - show online users
+  list                 - show online (currently connected) users
+  allusers             - show every registered user, online or offline
   files                - show files available on the server
   msg                  - send a private message
   broadcast            - send a message to everyone
@@ -221,6 +236,8 @@ def main():
             cmd = input("> ").strip().lower()
             if cmd == "list":
                 do_list(sock)
+            elif cmd == "allusers":
+                do_allusers(sock)
             elif cmd == "files":
                 do_files(sock)
             elif cmd == "msg":
