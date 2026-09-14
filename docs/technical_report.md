@@ -2,10 +2,33 @@
 
 ## 1. Introduction
 
-*TODO (write in your own words): what this application does, at a high
-level — a TCP server + CLI client supporting login, private/broadcast
-messaging, server-stored file upload/download, and direct client-to-client
-file transfer relayed through the server, with ≥5 concurrent clients.*
+The purpose of this project is to build a simple multi-client file
+transfer application using TCP sockets in Python. The application follows
+a client-server model where multiple clients can connect to one server
+and communicate with it using a custom application-layer protocol. The
+main aim was to understand how application-layer communication can be
+designed on top of TCP and how multiple connections can be handled at the
+same time.
+
+The server supports user login, maintains a list of active users, and
+processes different commands sent by clients. Users can send private
+messages, broadcast messages, upload files to the server, download files
+stored on the server, and send a file to another online client through
+the server. The server uses a separate thread for each connected client,
+which allows multiple clients to stay connected and perform operations
+concurrently.
+
+The protocol uses simple text-based control messages in the form of
+`COMMAND|FIELD|FIELD`. File contents are handled separately as raw bytes
+with the exact file size specified before the transfer. This makes it
+possible to use the same TCP connection for both normal commands and file
+transfers.
+
+The project was also tested with multiple clients, and performance
+experiments were performed for round-trip time, broadcast latency, and
+concurrent file downloads. These experiments helped in understanding the
+difference between application processing time and actual network delay,
+especially when using the local loopback interface.
 
 ## 2. Design
 
@@ -68,10 +91,48 @@ See `docs/protocol_spec.md` for the full wire-format specification.
 
 ## 3. Implementation
 
-*TODO: describe the socket programming techniques you'd highlight in your
-own words — e.g. `SO_REUSEADDR`, blocking sockets + threading (vs.
-`select`/`asyncio`), `sendall` vs. `send`, the line-reader implemented
-byte-by-byte, thread safety around `active_clients`.*
+The application was implemented in Python using the built-in TCP socket
+and threading libraries. The server creates a TCP socket, binds it to the
+selected address and port, and continuously accepts new connections.
+Whenever a new client connects, the server creates a separate thread to
+handle that client. This prevents one client's activity from blocking the
+others.
+
+The server keeps the currently connected users in an `active_clients`
+dictionary. Since several client threads can access this shared
+dictionary at the same time, a lock is used to protect it. This helps
+avoid inconsistent state when users log in, log out, or send messages to
+other clients.
+
+The server uses blocking sockets because the application is relatively
+small and the assignment requires threading. A thread-per-client approach
+was easier to understand and implement than using `select()` or
+`asyncio`. Each client connection stays open during the session instead
+of creating a new connection for every command.
+
+For sending data, `sendall()` is used so that the complete buffer is sent
+before the operation returns. On the receiving side, control messages are
+read one byte at a time until a newline is found. This matches the
+line-oriented protocol and allows the receiver to know when a control
+message is complete.
+
+File transfer uses a different method because file contents are binary
+data and cannot safely be treated as text lines. The sender first sends a
+control message containing the filename and exact file size. After the
+server or receiver sends `READY`, the raw file bytes are transferred. The
+receiver then reads exactly the announced number of bytes. This avoids
+depending on the TCP connection closing to mark the end of a file.
+
+The client also uses two threads. The main thread handles user input and
+sends commands, while a background reader thread performs socket reads.
+This is necessary because the client can receive an incoming message or
+file from another user even while the user is entering another command.
+The reader thread handles unsolicited `MSG`, `BROADCAST`, and
+`SEND_INCOMING` messages separately from normal command responses.
+
+The project was kept intentionally simple so that each part of the socket
+communication and concurrency model could be understood and tested
+independently.
 
 Source layout:
 
@@ -272,27 +333,98 @@ demo.
 - `tests/test_protocol.py`: an end-to-end functional test that starts a
   real server subprocess and drives two real client connections through
   every command and every documented error path (login, duplicate
-  username, wrong password, list, private message, broadcast, upload,
-  download, download of a missing file, client-to-client send, send to an
-  offline user, logout) — **22/22 checks passed**.
+  username, wrong password, list, allusers, private message, broadcast,
+  upload, download, download of a missing file, files listing,
+  client-to-client send, send to an offline user, logout) — **25/25
+  checks passed**.
 - All three performance scripts (`experiments/test*.py`) were run
   end-to-end against a live server and produced real measurements (not
   just "it doesn't crash").
+- During testing with multiple clients connected at once, the server kept
+  separate client sessions active simultaneously — commands such as
+  `LIST`, messaging, and file operations could be run without any client
+  needing to reconnect between operations, consistent with the
+  thread-per-client model handling clients independently.
+- The logout-handling fix (see prompt log entry 11) was verified directly:
+  before the fix, a normal server-side connection close after
+  `LOGOUT_OK` was incorrectly reported by the client as an unexpected
+  disconnect; after the fix, a clean logout no longer triggers that
+  message, while a genuine mid-session drop still does.
 
-*TODO: after your own demo run with 5+ concurrent interactive clients,
-note anything you observed (e.g. did LOGOUT during an active BROADCAST
-work cleanly? any timing issues?).*
+*TODO: the automated test above exercises two concurrent clients
+end-to-end, but the assignment specifically requires a live demo with 5+
+concurrent interactive clients. After running that demo yourself, note
+anything you actually observed (e.g. did LOGOUT during an active
+BROADCAST work cleanly with 5 clients connected? any timing issues?)
+— this can't be filled in until that demo run has actually happened.*
 
 ## 7. Challenges
 
-*TODO (write in your own words): problems you personally ran into and how
-you solved them — e.g. reasoning about which thread owns socket reads vs.
-writes, deciding on the `SEND_INCOMING` push design, testing concurrency,
-etc. This section should reflect your own understanding, since you need
-to be able to explain it live.*
+> **Before submitting:** the paragraphs below are a drafted starting
+> point, not your own words yet. Read them, make sure you'd actually
+> explain it this way if asked live, and rewrite the sentences so they're
+> genuinely yours before this goes in the final submission.
+
+One of the main challenges was handling communication when multiple
+clients are connected at the same time. The server has to maintain
+information about all active users and allow one client thread to send
+data to another client's socket. Using a shared `active_clients`
+dictionary with a lock made this easier to manage.
+
+Another challenge was deciding how to separate normal protocol messages
+from file data. Since TCP provides a continuous byte stream, simply
+reading from the socket does not tell the receiver where one application
+message ends. The solution was to use newline-terminated control messages
+and include an exact byte count for every file transfer. This made the
+file boundary clear to the receiver.
+
+Client-side asynchronous messages were another issue. A client cannot
+assume that every incoming message is a direct response to the command it
+just sent. Another user may send a message, broadcast, or file at any
+time. To handle this, the client uses a background reader thread and
+distinguishes pushed messages such as `MSG`, `BROADCAST`, and
+`SEND_INCOMING` from ordinary command responses.
+
+There was also a logout-related problem during testing. The server
+correctly closed the socket after sending `LOGOUT_OK`, but the client
+reader thread initially interpreted that close as an unexpected server
+disconnection. This was fixed by using an `expected_close` flag so the
+client knows that the connection is being closed normally.
+
+The throughput experiment also revealed a limitation in the
+implementation. For downloads, the server currently reads the entire file
+into memory before sending it. This becomes expensive when ten clients
+request a 1 GB file at the same time. The results suggested that memory
+pressure was contributing to the large drop in throughput for the 1 GB
+experiment. A possible improvement would be to stream the file in
+fixed-size chunks instead — this was not implemented, only identified as
+a proposed fix, since it wasn't required for this assignment's scope.
 
 ## 8. Conclusion
 
-*TODO (write in your own words): what you learned about application-layer
-protocol design, TCP socket programming, and concurrency from this
-assignment.*
+> **Before submitting:** same note as above — rewrite this in your own
+> words before it goes in the final submission.
+
+This project gave practical experience with designing and implementing an
+application-layer protocol over TCP. Instead of relying only on existing
+protocols, the project required defining our own message format,
+commands, responses, error conditions, and file-transfer rules.
+
+The implementation also helped in understanding how TCP sockets work in a
+real application. In particular, the project showed that TCP provides a
+reliable byte stream, but the application still needs its own rules for
+identifying messages and file boundaries. The use of newline-delimited
+control messages and fixed byte counts for file payloads was one of the
+main design decisions.
+
+Another important part of the project was concurrency. Using one thread
+for each connected client made it possible to support several clients at
+the same time, while the client's reader thread allowed incoming messages
+and file transfers to be handled asynchronously.
+
+The performance experiments also showed that network performance is
+affected by more than just the protocol itself. In the local loopback
+tests, very small RTTs were observed, while larger file transfers exposed
+memory and processing limitations in the implementation. Overall, the
+project improved my understanding of TCP communication, application-layer
+protocol design, file transfer, and concurrent client handling.
