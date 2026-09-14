@@ -1,15 +1,20 @@
 # Multi-Client File Transfer
 
-A TCP-based multi-client file transfer application developed for the Computer Networks course.
+A TCP-based multi-client file transfer application built for a Computer
+Networks course. A multi-threaded server supports concurrent clients
+that can authenticate, message each other, and transfer files to and
+from the server or directly to another connected client.
 
-## Planned Features
+## Features
 
-- User authentication
-- Multiple simultaneous TCP clients
-- File upload and download
-- Client-to-client file transfer through the server
-- Custom application-layer protocol
-- Performance analysis with concurrent clients
+- User authentication (login, auto-registered on first use)
+- Multi-threaded server — many simultaneous clients, one thread each
+- Private messaging and broadcast messaging
+- Upload and download files to/from server storage
+- Send a file directly to another online client, relayed through the server
+- List online users, list every registered user (online or offline), and list files available on the server
+- Custom text-based application-layer protocol over raw TCP sockets
+- Performance test scripts for round-trip time, broadcast latency, and concurrent-download throughput
 
 ## Technology
 
@@ -59,55 +64,11 @@ python experiments/test3_throughput.py 127.0.0.1 5050 100   # 100 MB
 python experiments/test3_throughput.py 127.0.0.1 5050 1000  # 1 GB
 ```
 
-See `docs/protocol_spec.md` for the full protocol specification and
-`docs/technical_report.md` for the report skeleton (fill in the
-experimental results and reflection sections with your own run).
+## Project Structure
 
-# Application-Layer Protocol
-
-## Overview
-
-This project uses a custom text-based application-layer protocol over TCP.
-
-Commands and responses are exchanged between the client and server using a
-simple structured format.
-
-## Message Format
-
-Messages use the following format:
-
-COMMAND|FIELD1|FIELD2|...
-
-The `|` character separates different fields in a message.
-
-## Initial Commands
-
-| Command | Purpose |
-|---|---|
-| LOGIN | Authenticate a user |
-| LIST | List currently connected users |
-| MSG | Send a message to another user |
-| UPLOAD | Upload a file to the server |
-| DOWNLOAD | Download a file from the server |
-| SEND | Send a file to another user |
-| LOGOUT | Disconnect from the server |
-
-## Example
-
-Client:
-
-LOGIN|alice|password123
-
-Server:
-
-LOGIN_OK|alice
-
-## Error Responses
-
-The server can return errors using:
-
-ERROR|INVALID_COMMAND
-ERROR|AUTH_FAILED
-ERROR|USER_ALREADY_ONLINE
-ERROR|FILE_NOT_FOUND
-ERROR|USER_NOT_FOUND
+```
+server/       TCP server: connection handling, threading, command dispatch
+client/       Interactive CLI client
+experiments/  Performance test scripts (RTT, broadcast latency, throughput)
+tests/        End-to-end protocol test suite
+```
