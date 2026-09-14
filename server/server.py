@@ -11,6 +11,7 @@ import os
 import socket
 import sys
 import threading
+import traceback
 
 from protocol import send_line, recv_line, recv_exact, send_exact
 
@@ -246,23 +247,42 @@ def handle_client(sock, addr):
                 send_line(sock, "ERROR", "NOT_LOGGED_IN")
                 continue
 
-            if command == "LOGOUT":
-                send_line(sock, "LOGOUT_OK")
+            try:
+                if command == "LOGOUT":
+                    send_line(sock, "LOGOUT_OK")
+                    break
+                elif command == "LIST":
+                    handle_list(sock)
+                elif command == "MSG":
+                    handle_msg(sock, username, fields)
+                elif command == "BROADCAST":
+                    handle_broadcast(sock, username, fields)
+                elif command == "UPLOAD":
+                    handle_upload(sock, fields)
+                elif command == "DOWNLOAD":
+                    handle_download(sock, fields)
+                elif command == "SEND":
+                    handle_send(sock, username, fields)
+                else:
+                    send_line(sock, "ERROR", "UNKNOWN_COMMAND")
+            except ConnectionError:
+                # Peer dropped mid-transfer; nothing more we can do for
+                # this connection, but this isn't a server bug.
                 break
-            elif command == "LIST":
-                handle_list(sock)
-            elif command == "MSG":
-                handle_msg(sock, username, fields)
-            elif command == "BROADCAST":
-                handle_broadcast(sock, username, fields)
-            elif command == "UPLOAD":
-                handle_upload(sock, fields)
-            elif command == "DOWNLOAD":
-                handle_download(sock, fields)
-            elif command == "SEND":
-                handle_send(sock, username, fields)
-            else:
-                send_line(sock, "ERROR", "UNKNOWN_COMMAND")
+            except Exception:
+                # Anything unexpected: log the real cause to the server
+                # console (instead of the client just silently dropping)
+                # and close this connection -- after a failed command the
+                # byte stream position can no longer be trusted, so we
+                # can't safely keep using this socket.
+                print(f"[!] Unhandled error while handling {command!r} "
+                      f"from {username}:")
+                traceback.print_exc()
+                try:
+                    send_line(sock, "ERROR", "SERVER_ERROR")
+                except OSError:
+                    pass
+                break
     finally:
         cleanup(username, sock)
 

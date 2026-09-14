@@ -29,14 +29,20 @@ reply_queue = queue.Queue()
 
 PUSH_COMMANDS = {"MSG", "BROADCAST", "SEND_INCOMING"}
 
+# Set right before we close our own end of the socket after a clean LOGOUT,
+# so the reader thread's subsequent "connection closed" isn't reported as an
+# unexpected disconnect -- it's just noticing the shutdown it was told about.
+expected_close = threading.Event()
+
 
 def reader_thread(sock):
     while True:
         try:
             fields = recv_line(sock)
         except ConnectionError:
-            print("\n[!] Disconnected from server.")
-            reply_queue.put(["ERROR", "DISCONNECTED"])
+            if not expected_close.is_set():
+                print("\n[!] Disconnected from server.")
+                reply_queue.put(["ERROR", "DISCONNECTED"])
             break
 
         command = fields[0] if fields else ""
@@ -208,6 +214,11 @@ def main():
             elif cmd == "help":
                 print(HELP)
             elif cmd == "logout":
+                # Set this BEFORE sending LOGOUT: the server closes its
+                # socket immediately after replying, so the reader thread
+                # could observe that close before this thread gets
+                # scheduled again if the flag were set after expect().
+                expected_close.set()
                 send_line(sock, "LOGOUT")
                 expect("LOGOUT_OK")
                 break
