@@ -12,3 +12,9 @@ env/
 
 *.log
 .DS_Store
+
+# runtime-generated, not part of the submission
+server/users.txt
+server/storage/
+client/downloads/
+client/received/

@@ -1,0 +1,2 @@
+# No external dependencies -- server and client use only the Python
+# standard library (socket, threading, queue, os, sys, etc).
