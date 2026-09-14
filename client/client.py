@@ -1,0 +1,231 @@
+"""
+Interactive client for the multi-client file transfer server.
+
+A single background thread ("reader") owns every socket READ: it prints
+unsolicited pushes (MSG, BROADCAST, SEND_INCOMING) as they arrive, and
+pushes any other line onto `reply_queue` for the main thread, which is the
+only thread that ever WRITEs to the socket. Because TCP read/write are
+independent directions, this split avoids any locking around the socket
+itself.
+
+Run:  python client.py [host] [port]
+"""
+
+import os
+import queue
+import socket
+import sys
+import threading
+
+from protocol import send_line, recv_line, recv_exact, send_exact
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
+RECEIVED_DIR = os.path.join(BASE_DIR, "received")  # files pushed via SEND
+os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+os.makedirs(RECEIVED_DIR, exist_ok=True)
+
+reply_queue = queue.Queue()
+
+PUSH_COMMANDS = {"MSG", "BROADCAST", "SEND_INCOMING"}
+
+
+def reader_thread(sock):
+    while True:
+        try:
+            fields = recv_line(sock)
+        except ConnectionError:
+            print("\n[!] Disconnected from server.")
+            reply_queue.put(["ERROR", "DISCONNECTED"])
+            break
+
+        command = fields[0] if fields else ""
+
+        if command == "MSG":
+            _, sender, text = fields[0], fields[1], "|".join(fields[2:])
+            print(f"\n[MSG from {sender}] {text}\n> ", end="", flush=True)
+        elif command == "BROADCAST":
+            _, sender, text = fields[0], fields[1], "|".join(fields[2:])
+            print(f"\n[BROADCAST from {sender}] {text}\n> ", end="", flush=True)
+        elif command == "SEND_INCOMING":
+            _, filename, sender, filesize = fields
+            filesize = int(filesize)
+            data = recv_exact(sock, filesize)
+            path = os.path.join(RECEIVED_DIR, filename)
+            with open(path, "wb") as f:
+                f.write(data)
+            print(f"\n[+] Received '{filename}' from {sender} "
+                  f"({filesize} bytes) -> {RECEIVED_DIR}\n> ", end="", flush=True)
+        elif command == "DOWNLOAD_OK":
+            # The reader thread owns all socket reads, so it must pull the
+            # file bytes itself before handing the reply to the main thread.
+            _, filename, filesize = fields
+            filesize = int(filesize)
+            data = recv_exact(sock, filesize)
+            path = os.path.join(DOWNLOADS_DIR, filename)
+            with open(path, "wb") as f:
+                f.write(data)
+            reply_queue.put(["DOWNLOAD_OK", filename, str(filesize)])
+        else:
+            reply_queue.put(fields)
+
+
+def expect(*expected_commands):
+    """Block for the next reply and return it, printing ERROR replies inline."""
+    fields = reply_queue.get()
+    if fields[0] == "ERROR":
+        print(f"[ERROR] {'|'.join(fields[1:])}")
+    return fields
+
+
+def do_login(sock):
+    username = input("Username: ").strip()
+    password = input("Password: ").strip()
+    send_line(sock, "LOGIN", username, password)
+    fields = expect("LOGIN_OK")
+    if fields[0] == "LOGIN_OK":
+        print(f"Logged in as {username}")
+        return username
+    return None
+
+
+def do_list(sock):
+    send_line(sock, "LIST")
+    fields = expect("USERS")
+    if fields[0] == "USERS":
+        names = fields[1].split(",") if fields[1] else []
+        print("Online users:", ", ".join(names) if names else "(none)")
+
+
+def do_msg(sock):
+    target = input("To user: ").strip()
+    text = input("Message: ").strip()
+    send_line(sock, "MSG", target, text)
+    fields = expect("MSG_OK")
+    if fields[0] == "MSG_OK":
+        print("Sent.")
+
+
+def do_broadcast(sock):
+    text = input("Broadcast text: ").strip()
+    send_line(sock, "BROADCAST", text)
+    fields = expect("BROADCAST_OK")
+    if fields[0] == "BROADCAST_OK":
+        print("Broadcast sent.")
+
+
+def do_upload(sock):
+    path = input("Local file path to upload: ").strip()
+    if not os.path.isfile(path):
+        print("File not found locally.")
+        return
+    filename = os.path.basename(path)
+    filesize = os.path.getsize(path)
+
+    send_line(sock, "UPLOAD", filename, filesize)
+    fields = expect("READY")
+    if fields[0] != "READY":
+        return
+
+    with open(path, "rb") as f:
+        data = f.read()
+    send_exact(sock, data)
+
+    fields = expect("UPLOAD_OK")
+    if fields[0] == "UPLOAD_OK":
+        print(f"Uploaded '{filename}' ({filesize} bytes).")
+
+
+def do_download(sock):
+    filename = input("Filename to download: ").strip()
+    send_line(sock, "DOWNLOAD", filename)
+    fields = expect("DOWNLOAD_OK")
+    if fields[0] == "DOWNLOAD_OK":
+        _, name, size = fields
+        print(f"Downloaded '{name}' ({size} bytes) -> {DOWNLOADS_DIR}")
+
+
+def do_send(sock):
+    target = input("Send to user: ").strip()
+    path = input("Local file path to send: ").strip()
+    if not os.path.isfile(path):
+        print("File not found locally.")
+        return
+    filename = os.path.basename(path)
+    filesize = os.path.getsize(path)
+
+    send_line(sock, "SEND", target, filename, filesize)
+    fields = expect("READY")
+    if fields[0] != "READY":
+        return
+
+    with open(path, "rb") as f:
+        data = f.read()
+    send_exact(sock, data)
+
+    fields = expect("SEND_OK")
+    if fields[0] == "SEND_OK":
+        print(f"Sent '{filename}' to {target}.")
+
+
+HELP = """
+Commands:
+  list                 - show online users
+  msg                  - send a private message
+  broadcast            - send a message to everyone
+  upload               - upload a file to the server
+  download             - download a file from the server
+  send                 - send a file to another user
+  help                 - show this help
+  logout               - disconnect
+"""
+
+
+def main():
+    host = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
+    port = int(sys.argv[2]) if len(sys.argv) > 2 else 5050
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((host, port))
+
+    t = threading.Thread(target=reader_thread, args=(sock,), daemon=True)
+    t.start()
+
+    username = None
+    while username is None:
+        username = do_login(sock)
+
+    print(HELP)
+    try:
+        while True:
+            cmd = input("> ").strip().lower()
+            if cmd == "list":
+                do_list(sock)
+            elif cmd == "msg":
+                do_msg(sock)
+            elif cmd == "broadcast":
+                do_broadcast(sock)
+            elif cmd == "help":
+                print(HELP)
+            elif cmd == "logout":
+                send_line(sock, "LOGOUT")
+                expect("LOGOUT_OK")
+                break
+            elif cmd == "upload":
+                do_upload(sock)
+            elif cmd == "download":
+                do_download(sock)
+            elif cmd == "send":
+                do_send(sock)
+            elif cmd == "":
+                continue
+            else:
+                print("Unknown command. Type 'help'.")
+    except (KeyboardInterrupt, EOFError):
+        pass
+    finally:
+        sock.close()
+
+
+if __name__ == "__main__":
+    main()
