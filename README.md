@@ -35,9 +35,11 @@ python client/client.py
 ```
 
 Log in with any username/password — unknown usernames are auto-registered.
-Type `help` after logging in for the list of commands (`list`, `msg`,
-`broadcast`, `upload`, `download`, `send`, `logout`). Run at least 5
-clients at once to demo the concurrency requirement.
+Type `help` after logging in for the list of commands (`list`, `files`,
+`msg`, `broadcast`, `upload`, `download`, `send`, `logout`). `files` shows
+every file currently stored on the server, so you know what's available
+before running `download`. Run at least 5 clients at once to demo the
+concurrency requirement.
 
 **3. Run the automated protocol test** (starts its own server, no setup
 needed):

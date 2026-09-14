@@ -103,6 +103,19 @@ def do_list(sock):
         print("Online users:", ", ".join(names) if names else "(none)")
 
 
+def do_files(sock):
+    send_line(sock, "FILES")
+    fields = expect("FILES")
+    if fields[0] == "FILES":
+        names = fields[1].split(",") if fields[1] else []
+        if names:
+            print("Files on server:")
+            for name in names:
+                print(f"  {name}")
+        else:
+            print("Files on server: (none)")
+
+
 def do_msg(sock):
     target = input("To user: ").strip()
     text = input("Message: ").strip()
@@ -177,6 +190,7 @@ def do_send(sock):
 HELP = """
 Commands:
   list                 - show online users
+  files                - show files available on the server
   msg                  - send a private message
   broadcast            - send a message to everyone
   upload               - upload a file to the server
@@ -207,6 +221,8 @@ def main():
             cmd = input("> ").strip().lower()
             if cmd == "list":
                 do_list(sock)
+            elif cmd == "files":
+                do_files(sock)
             elif cmd == "msg":
                 do_msg(sock)
             elif cmd == "broadcast":

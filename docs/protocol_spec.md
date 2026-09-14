@@ -42,6 +42,7 @@ delimiter or framing — the receiver already knows how many bytes to read.
 | `LOGIN` | C→S | `LOGIN\|username\|password` | Authenticate. Unknown usernames are auto-registered with the given password. |
 | `LOGOUT` | C→S | `LOGOUT` | Gracefully end the session; server closes the connection. |
 | `LIST` | C→S | `LIST` | Request the list of currently online users. |
+| `FILES` | C→S | `FILES` | Request the list of files currently stored on the server (available for `DOWNLOAD`). |
 | `MSG` | C→S | `MSG\|username\|text` | Send a private message to one online user. |
 | `MSG` | S→C | `MSG\|sender\|text` | Delivery of a private message (pushed to the recipient). |
 | `BROADCAST` | C→S | `BROADCAST\|text` | Send a message to every other online user. |
@@ -57,6 +58,7 @@ delimiter or framing — the receiver already knows how many bytes to read.
 | `LOGIN_OK` | `LOGIN_OK\|username` | Login accepted. |
 | `LOGOUT_OK` | `LOGOUT_OK` | Logout acknowledged; connection will be closed. |
 | `USERS` | `USERS\|name1,name2,...` | Reply to `LIST`. Comma-separated, possibly empty. |
+| `FILES` | `FILES\|file1,file2,...` | Reply to `FILES`. Comma-separated, possibly empty. |
 | `MSG_OK` | `MSG_OK` | Private message was delivered. |
 | `BROADCAST_OK` | `BROADCAST_OK` | Broadcast was relayed to all other online users. |
 | `READY` | `READY` | Server is ready to receive the raw file bytes for an `UPLOAD` or `SEND`. |

@@ -124,6 +124,11 @@ def run_checks():
     r = recv_line(bob)
     check("download missing file errors", r[0] == "ERROR" and r[1] == "FILE_NOT_FOUND")
 
+    # --- files listing ---
+    send_line(bob, "FILES")
+    r = recv_line(bob)
+    check("files lists uploaded file", r[0] == "FILES" and "test.txt" in r[1].split(","))
+
     # --- send (client to client relay) ---
     send_payload = b"direct send payload" * 50
     send_line(alice, "SEND", "bob", "direct.bin", len(send_payload))

@@ -94,6 +94,14 @@ def handle_list(sock):
     send_line(sock, "USERS", ",".join(names))
 
 
+def handle_files(sock):
+    names = sorted(
+        f for f in os.listdir(STORAGE_DIR)
+        if os.path.isfile(os.path.join(STORAGE_DIR, f))
+    )
+    send_line(sock, "FILES", ",".join(names))
+
+
 def handle_msg(sock, sender, fields):
     if len(fields) < 3:
         send_line(sock, "ERROR", "BAD_ARGS")
@@ -253,6 +261,8 @@ def handle_client(sock, addr):
                     break
                 elif command == "LIST":
                     handle_list(sock)
+                elif command == "FILES":
+                    handle_files(sock)
                 elif command == "MSG":
                     handle_msg(sock, username, fields)
                 elif command == "BROADCAST":
