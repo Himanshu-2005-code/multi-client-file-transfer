@@ -326,11 +326,20 @@ def main():
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_sock.bind((host, port))
     server_sock.listen(20)
+    # A timeout on accept() makes the loop wake up periodically instead of
+    # blocking forever -- on Windows in particular, Ctrl+C can't interrupt
+    # a thread stuck in a blocking accept() with no incoming connection,
+    # so without this, shutting down cleanly could require a connection
+    # attempt to ever happen.
+    server_sock.settimeout(1.0)
     print(f"[*] Server listening on {host}:{port}")
 
     try:
         while True:
-            client_sock, addr = server_sock.accept()
+            try:
+                client_sock, addr = server_sock.accept()
+            except socket.timeout:
+                continue
             t = threading.Thread(target=handle_client, args=(client_sock, addr), daemon=True)
             t.start()
     except KeyboardInterrupt:
