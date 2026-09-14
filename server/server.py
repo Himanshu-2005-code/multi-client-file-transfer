@@ -256,7 +256,18 @@ def handle_client(sock, addr):
                 if username is not None:
                     send_line(sock, "ERROR", "ALREADY_LOGGED_IN")
                     continue
-                username = handle_login(sock, fields)
+                try:
+                    username = handle_login(sock, fields)
+                except ConnectionError:
+                    break
+                except Exception:
+                    print(f"[!] Unhandled error while handling LOGIN from {addr}:")
+                    traceback.print_exc()
+                    try:
+                        send_line(sock, "ERROR", "SERVER_ERROR")
+                    except OSError:
+                        pass
+                    break
                 continue
 
             if username is None:
