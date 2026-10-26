@@ -13,7 +13,8 @@ import sys
 import threading
 import traceback
 
-from protocol import send_line, recv_line, recv_exact, send_exact
+from protocol import recv_line, recv_exact
+from protocol import send_line as _send_line, send_exact as _send_exact
 
 HOST = "0.0.0.0"
 PORT = 5050
@@ -26,6 +27,29 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 # username -> socket, for every currently-logged-in client
 active_clients = {}
 clients_lock = threading.Lock()
+
+# One write lock per socket. Several server threads can write to the SAME
+# client socket (its own thread sending replies, other clients' threads
+# pushing MSG / BROADCAST / SEND_INCOMING to it). Without a lock, two
+# sendall() calls can interleave and corrupt the byte stream. RLock so a
+# thread can hold it across a header + payload pair and still call send_line.
+write_locks = {}
+write_locks_guard = threading.Lock()
+
+
+def write_lock(sock):
+    with write_locks_guard:
+        return write_locks.setdefault(sock, threading.RLock())
+
+
+def send_line(sock, *fields):
+    with write_lock(sock):
+        _send_line(sock, *fields)
+
+
+def send_exact(sock, data):
+    with write_lock(sock):
+        _send_exact(sock, data)
 
 
 def load_users():
