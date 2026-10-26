@@ -195,10 +195,12 @@ def handle_download(sock, fields):
         return
 
     filesize = os.path.getsize(path)
-    send_line(sock, "DOWNLOAD_OK", filename, filesize)
     with open(path, "rb") as f:
         data = f.read()
-    send_exact(sock, data)
+    # Header and payload must go out back-to-back with nothing in between.
+    with write_lock(sock):
+        send_line(sock, "DOWNLOAD_OK", filename, filesize)
+        send_exact(sock, data)
 
 
 def handle_send(sock, sender, fields):
