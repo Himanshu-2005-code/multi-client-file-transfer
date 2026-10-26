@@ -263,6 +263,8 @@ def cleanup(username, sock):
             if active_clients.get(username) is sock:
                 del active_clients[username]
         print(f"[-] {username} disconnected")
+    with write_locks_guard:
+        write_locks.pop(sock, None)
     try:
         sock.close()
     except OSError:
