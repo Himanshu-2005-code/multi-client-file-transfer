@@ -228,8 +228,10 @@ def handle_send(sock, sender, fields):
     data = recv_exact(sock, filesize)
 
     try:
-        send_line(target_sock, "SEND_INCOMING", filename, sender, filesize)
-        send_exact(target_sock, data)
+        # Header and payload must go out back-to-back with nothing in between.
+        with write_lock(target_sock):
+            send_line(target_sock, "SEND_INCOMING", filename, sender, filesize)
+            send_exact(target_sock, data)
     except OSError:
         send_line(sock, "ERROR", "USER_NOT_FOUND")
         return
