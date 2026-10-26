@@ -306,6 +306,11 @@ def handle_client(sock, addr):
 
             try:
                 if command == "LOGOUT":
+                    # Go offline BEFORE confirming, so anyone who asks for
+                    # LIST / ALLUSERS after our LOGOUT_OK never sees us online.
+                    with clients_lock:
+                        if active_clients.get(username) is sock:
+                            del active_clients[username]
                     send_line(sock, "LOGOUT_OK")
                     break
                 elif command == "LIST":
