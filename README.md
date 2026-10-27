@@ -362,8 +362,8 @@ Python standard library only.
 
 **How it was used.** A2 was built in small steps, one short prompt per step, never the
 whole program from one prompt. For each step the AI proposed and wrote the code change
-as several small git commits (branch `a2` of my A1 repository), ran the tests, and
-explained the change; I checked the result before giving the next prompt. Design
+as small changes (branch `a2` of my A1 repository; one git commit per step), ran the
+tests, and explained the change; I checked the result before giving the next prompt. Design
 decisions were mine (OpenSSL instead of PuTTYgen, a REGISTER command instead of A1's
 auto-registration, editing the stored file for the tamper demo).
 
@@ -387,6 +387,7 @@ auto-registration, editing the stored file for the tamper demo).
 | 12 | Chose "Include them" (certificates in the zip) | `2024261_A2.zip` |
 | 13 | "next"; chose "Full technical report"; "you can run it on my laptop" | experiments run on my laptop, client TCP_NODELAY fix, `2024261_A2.pdf` |
 | 14 | "check alll the requirements as i donot wantt o lose marks" | requirement audit; expired-certificate demo; CA key left out of the zip; password hidden while typing |
+| 15 | "where can i loose marks"; "76 commits in one day is too much"; chose "Squash to one commit per step" | git history squashed to one commit per step (no code change) |
 
 Questions I asked the AI to understand the material (no code produced): "what is tls",
 the CN syllabus slides (to check which security topics my course covers), and the

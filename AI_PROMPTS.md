@@ -5,6 +5,11 @@ The work was done in small steps, one prompt per step. Each entry lists my
 prompt word for word, what the AI produced (with the commits), and what I
 checked myself.
 
+Each step was first made as several small commits. In step 15 I asked for fewer
+commits, so the history was squashed to **one commit per step** ("Step N: ...").
+The commit names listed under each step below are the changes inside that step's
+commit (they are also listed in the commit message).
+
 ---
 
 ## Step 0: planning
@@ -322,3 +327,20 @@ capture of the whole run. First result: 34/36. The two gaps, and one extra fix:
   holding it could make certificates every client trusts.
 
 **What I checked:** the audit on the rebuilt zip (see the final result in the report).
+
+---
+
+## Step 15: one commit per step
+
+**My prompts / choices:** "where can i loose marks" (a list of risks, no code);
+"76 commits in one day is too much"; chose **"Squash to one commit per step (Recommended)"**.
+
+**AI output:**
+- The history of branch `a2` (and `main`, where `a2` had been merged) rewritten to one commit
+  per step, Step 1 to Step 14, each with the date of the last change in that step; the list of
+  the original small commits is kept in each commit message. The final files are identical.
+- This entry and the note at the top of this log; the README's AI section updated.
+- The full detailed history kept as a backup file (not pushed).
+
+**What I checked:** `git diff` between the old and new history is empty; the 48 tests pass.
+
