@@ -8,6 +8,11 @@ basicConstraints = critical, CA:FALSE
 keyUsage = critical, digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth
 
+# Identify this key and the CA key that signed it (needed by strict
+# verification in Python 3.13+).
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+
 # Names the client may use to reach the server. The client checks that the
 # address it connected to appears here (hostname verification).
 # gen_certs.py appends any extra IP addresses passed on the command line.
