@@ -165,3 +165,30 @@ or `ERROR|INTEGRITY_FAIL` (file not stored). An UPLOAD without a digest gets `ER
 **What I checked:** the digest the client prints for a 100 KB file equals the output of the
 standard `sha256sum` tool; the server logs `[integrity] UPLOAD ... OK`; a file with one changed
 byte sent with the original's digest is rejected with INTEGRITY_FAIL and not stored. All tests pass.
+
+---
+
+## Step 8: file integrity on download and client-to-client send
+
+**My prompt:** "next"
+
+**AI output:**
+- `client: verify the SHA-256 of downloaded files` (file not saved if the check fails)
+- `server: send the recorded SHA-256 with every download` (the digest recorded at upload time, so a file changed on the server's disk is detected)
+- `tests: check the digest on download and detect a file modified on the server`
+- `client: verify the SHA-256 of files received from other users`
+- `server: verify and forward the digest of files sent between users` (checked at the server, then again by the receiver)
+- `client: send a SHA-256 digest with files sent to other users`
+- `tests: check the digest on SEND and that a corrupted send is stopped`
+- `server: require a digest on every SEND`
+
+Order of commits: the receiving side learned to accept the new field before the sending side
+started sending it, so every commit works on its own.
+
+Protocol changes:
+- `DOWNLOAD_OK|filename|size|sha256` + bytes (client recomputes and compares)
+- `SEND|target|filename|size|sha256` -> server checks -> `SEND_INCOMING|filename|sender|size|sha256` + bytes (receiver checks)
+
+**What I checked:** upload then download of a 100 KB file: same digest at both ends, identical
+file. alice sends bob a 1 MB file: same digest at alice, the server and bob; identical file.
+All protocol tests pass (5 runs), including a file modified on the server's disk and a corrupted SEND.
