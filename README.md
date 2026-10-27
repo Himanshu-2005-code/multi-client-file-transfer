@@ -257,3 +257,62 @@ The same check was done during development with a packet capture on loopback:
 the A1 capture contained the password, a broadcast message and a file's contents in
 plaintext; the A2 capture of the same actions (58 packets) contained none of them, and
 its first bytes are `16 03 01`, a TLS handshake record.
+
+## Tests and experiments
+
+With the server running (`python server/server.py`), from another terminal:
+
+```
+python experiments/test1_rtt.py                      # RTT of LIST, 100 requests
+python experiments/test2_broadcast_latency.py        # broadcast to 5 clients
+python experiments/test3_throughput.py 127.0.0.1 5050 1      # 10 clients x 1 MB
+python experiments/test3_throughput.py 127.0.0.1 5050 100    # 10 clients x 100 MB
+python experiments/test4_secure_transfer.py          # 100 KB / 1 MB / 10 MB upload, download, send
+```
+
+All of them connect over TLS (helper: `experiments/secure_conn.py`, which registers the
+test accounts if needed). Test 3 and test 4 check the SHA-256 of every file received.
+
+Results on the development machine (Linux, loopback, Python 3.13):
+
+| Test | Result |
+|---|---|
+| 1. RTT (LIST) | avg 0.12 ms (A1 without TLS: 0.05 ms) |
+| 2. Broadcast to 5 clients | avg 0.87 ms |
+| 3. 10 clients x 100 MB | 156 MB/s, 10/10 downloads verified |
+| 4. 100 KB upload / download / send | 1.6 / 0.9 / 1.5 ms, all PASS |
+| 4. 1 MB upload / download / send | 7.6 / 4.7 / 10.7 ms, all PASS |
+| 4. 10 MB upload / download / send | 65 / 38 / 129 ms, all PASS |
+
+TLS adds the cost of encrypting and authenticating every record (RTT 0.05 -> 0.12 ms).
+"Send" is slowest because the file crosses two TLS connections and is checked twice.
+
+`tests/test_protocol.py` starts its own server and runs 47 checks: the untrusted-certificate
+rejection, registration and login rules, no plaintext in `users.txt`, every A1 command,
+and the integrity checks for upload, download (including a file modified on the server)
+and send (including a corrupted file that must not be forwarded).
+
+## Problems found and fixed during A2
+
+- **Strict certificate checks (Python 3.13+).** The first CA certificate was rejected
+  because it did not state `CA:TRUE` / `keyCertSign`. Fixed in `gen_certs.py`.
+- **Two replies for one request.** On the 3rd failed login the server sent
+  `AUTH_FAILED` and `TOO_MANY_ATTEMPTS`; the client read the first, tried again on a
+  closed connection and crashed. Fixed: exactly one reply per request.
+- **40 ms delay on the first message.** With TLS, the first small message after each
+  login waited ~42 ms (broadcast latency went from 0.9 ms to 31 ms). Cause: Nagle's
+  algorithm with delayed ACKs, triggered by the small TLS records sent right after the
+  handshake. Fixed with `TCP_NODELAY` on the server's sockets.
+- **From A1:** concurrent writes to one client's socket could mix bytes (1 of 4 files
+  intact in a stress test); fixed with a write lock per socket. LOGOUT_OK was sent before
+  the user was marked offline; now the user goes offline first.
+
+## Limitations
+
+- Files are read into memory whole; very large files (GBs) need a lot of RAM.
+- The server's own copy of the digests could be changed by someone who controls the
+  server; signing digests with the uploader's private key would cover that.
+- Only the server is authenticated by certificate; clients authenticate with passwords
+  (client certificates, i.e. mutual TLS, would be the next step).
+- An already-expired certificate is not part of the demo: OpenSSL 3.0's `req -x509`
+  cannot create one directly.
