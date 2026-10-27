@@ -315,17 +315,23 @@ def handle_download(sock, fields):
         send_line(sock, "ERROR", "FILE_NOT_FOUND")
         return
 
-    filesize = os.path.getsize(path)
     with open(path, "rb") as f:
         data = f.read()
+    filesize = len(data)
+    # Send the digest recorded when the file was uploaded, NOT one computed
+    # now: if the stored file was modified or corrupted on the server's disk
+    # since then, the client's check will fail. Files without a record (put
+    # into storage/ by hand) get a digest of their current contents.
+    digest = load_digest(filename) or sha256_hex(data)
     # Header and payload must go out back-to-back with nothing in between.
     with write_lock(sock):
-        send_line(sock, "DOWNLOAD_OK", filename, filesize)
+        send_line(sock, "DOWNLOAD_OK", filename, filesize, digest)
         send_exact(sock, data)
 
 
 def handle_send(sock, sender, fields):
-    if len(fields) != 4:
+    # SEND|target|filename|size|sha256
+    if len(fields) != 5:
         send_line(sock, "ERROR", "BAD_ARGS")
         return
     target = fields[1]
@@ -348,10 +354,22 @@ def handle_send(sock, sender, fields):
     send_line(sock, "READY")
     data = recv_exact(sock, filesize)
 
+    # Hop 1 (sender -> server): check before forwarding, so a corrupted
+    # file is never passed on. The receiver checks hop 2 itself.
+    sent_digest = fields[4].lower()
+    got_digest = sha256_hex(data)
+    if got_digest != sent_digest:
+        print(f"[integrity] SEND '{filename}' {sender}->{target} FAILED: "
+              f"sent {sent_digest[:16]}..., received {got_digest[:16]}...")
+        send_line(sock, "ERROR", "INTEGRITY_FAIL")
+        return
+    print(f"[integrity] SEND '{filename}' {sender}->{target} OK ({got_digest[:16]}...)")
+
     try:
         # Header and payload must go out back-to-back with nothing in between.
+        # The sender's digest is forwarded so the receiver can verify too.
         with write_lock(target_sock):
-            send_line(target_sock, "SEND_INCOMING", filename, sender, filesize)
+            send_line(target_sock, "SEND_INCOMING", filename, sender, filesize, sent_digest)
             send_exact(target_sock, data)
     except OSError:
         send_line(sock, "ERROR", "USER_NOT_FOUND")

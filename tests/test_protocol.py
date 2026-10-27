@@ -192,6 +192,20 @@ def run_checks():
     check("download ok header", r[0] == "DOWNLOAD_OK" and int(r[2]) == len(payload))
     data = recv_exact(bob, int(r[2]))
     check("downloaded bytes match", data == payload)
+    check("download carries the recorded digest, and it verifies",
+          len(r) == 4 and r[3] == sha256_hex(payload) == sha256_hex(data))
+
+    # modify the stored file on the server's disk after upload
+    stored = os.path.join(ROOT, "server", "storage", "test.txt")
+    with open(stored, "r+b") as f:
+        f.write(b"Z")
+    send_line(bob, "DOWNLOAD", "test.txt")
+    r = recv_line(bob)
+    data = recv_exact(bob, int(r[2]))
+    check("file modified on the server is detected on download",
+          r[3] == sha256_hex(payload) and sha256_hex(data) != r[3])
+    with open(stored, "wb") as f:          # put the original back
+        f.write(payload)
 
     send_line(bob, "DOWNLOAD", "doesnotexist.txt")
     r = recv_line(bob)
@@ -204,7 +218,7 @@ def run_checks():
 
     # --- send (client to client relay) ---
     send_payload = b"direct send payload" * 50
-    send_line(alice, "SEND", "bob", "direct.bin", len(send_payload))
+    send_line(alice, "SEND", "bob", "direct.bin", len(send_payload), sha256_hex(send_payload))
     r = recv_line(alice)
     check("send ready", r[0] == "READY")
     send_exact(alice, send_payload)
@@ -215,9 +229,31 @@ def run_checks():
     check("bob got send_incoming header", r[0] == "SEND_INCOMING" and r[1] == "direct.bin" and r[2] == "alice")
     data = recv_exact(bob, int(r[3]))
     check("bob received correct bytes", data == send_payload)
+    check("sender's digest forwarded to bob, and it verifies",
+          len(r) == 5 and r[4] == sha256_hex(send_payload) == sha256_hex(data))
+
+    # one byte changed on the way, digest of the original
+    bad = b"X" + send_payload[1:]
+    send_line(alice, "SEND", "bob", "bad.bin", len(bad), sha256_hex(send_payload))
+    recv_line(alice)                                     # READY
+    send_exact(alice, bad)
+    r = recv_line(alice)
+    check("corrupted send rejected by the server", r == ["ERROR", "INTEGRITY_FAIL"])
+    bob.settimeout(0.5)
+    try:
+        nothing_forwarded = False
+        recv_line(bob)
+    except (socket.timeout, TimeoutError):
+        nothing_forwarded = True
+    bob.settimeout(None)
+    check("corrupted file not forwarded to bob", nothing_forwarded)
+
+    send_line(alice, "SEND", "bob", "nodigest.bin", 3)
+    r = recv_line(alice)
+    check("send without a digest rejected", r == ["ERROR", "BAD_ARGS"])
 
     # send to offline user
-    send_line(alice, "SEND", "nobody", "x.txt", 3)
+    send_line(alice, "SEND", "nobody", "x.txt", 3, sha256_hex(b"abc"))
     r = recv_line(alice)
     check("send to offline user errors", r[0] == "ERROR" and r[1] == "USER_NOT_FOUND")
 

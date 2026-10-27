@@ -73,24 +73,48 @@ def reader_thread(sock):
             _, sender, text = fields[0], fields[1], "|".join(fields[2:])
             print(f"\n[BROADCAST from {sender}] {text}\n> ", end="", flush=True)
         elif command == "SEND_INCOMING":
-            _, filename, sender, filesize = fields
-            filesize = int(filesize)
+            # SEND_INCOMING|filename|sender|size|sha256
+            filename, sender, filesize = fields[1], fields[2], int(fields[3])
+            expected = fields[4].lower() if len(fields) > 4 else None
             data = recv_exact(sock, filesize)
+            got = sha256_hex(data)
+            if expected is not None and got != expected:
+                # digest computed by the sender does not match what arrived
+                print(f"\n[!] Integrity check FAILED for '{filename}' from {sender}: "
+                      f"the file was modified or corrupted.\n"
+                      f"    expected SHA-256: {expected}\n"
+                      f"    received SHA-256: {got}\n"
+                      f"    The file was NOT saved.\n> ", end="", flush=True)
+                continue
             path = os.path.join(RECEIVED_DIR, filename)
             with open(path, "wb") as f:
                 f.write(data)
+            check = ("Integrity check passed (SHA-256 matches the sender's)."
+                     if expected else "")
             print(f"\n[+] Received '{filename}' from {sender} "
-                  f"({filesize} bytes) -> {RECEIVED_DIR}\n> ", end="", flush=True)
+                  f"({filesize} bytes) -> {RECEIVED_DIR}\n"
+                  f"    SHA-256: {got}\n    {check}\n> ", end="", flush=True)
         elif command == "DOWNLOAD_OK":
             # The reader thread owns all socket reads, so it must pull the
             # file bytes itself before handing the reply to the main thread.
-            _, filename, filesize = fields
-            filesize = int(filesize)
+            # DOWNLOAD_OK|filename|size|sha256
+            filename, filesize = fields[1], int(fields[2])
+            expected = fields[3].lower() if len(fields) > 3 else None
             data = recv_exact(sock, filesize)
-            path = os.path.join(DOWNLOADS_DIR, filename)
-            with open(path, "wb") as f:
-                f.write(data)
-            reply_queue.put(["DOWNLOAD_OK", filename, str(filesize)])
+            # Integrity check: recompute the digest of what arrived and
+            # compare it with the server's. A file that fails is not saved.
+            got = sha256_hex(data)
+            if expected is None:
+                status = "UNCHECKED"
+            elif got == expected:
+                status = "OK"
+            else:
+                status = "FAIL"
+            if status != "FAIL":
+                with open(os.path.join(DOWNLOADS_DIR, filename), "wb") as f:
+                    f.write(data)
+            reply_queue.put(["DOWNLOAD_OK", filename, str(filesize), status,
+                             expected or "", got])
         else:
             reply_queue.put(fields)
 
@@ -210,8 +234,17 @@ def do_download(sock):
     send_line(sock, "DOWNLOAD", filename)
     fields = expect("DOWNLOAD_OK")
     if fields[0] == "DOWNLOAD_OK":
-        _, name, size = fields
+        _, name, size, status, expected, got = fields
+        if status == "FAIL":
+            print(f"Integrity check FAILED for '{name}': the file was modified or corrupted.")
+            print(f"  expected SHA-256: {expected}")
+            print(f"  received SHA-256: {got}")
+            print("  The file was NOT saved.")
+            return
         print(f"Downloaded '{name}' ({size} bytes) -> {DOWNLOADS_DIR}")
+        print(f"SHA-256: {got}")
+        if status == "OK":
+            print("Integrity check passed: matches the digest recorded at upload.")
 
 
 def do_send(sock):
@@ -221,20 +254,26 @@ def do_send(sock):
         print("File not found locally.")
         return
     filename = os.path.basename(path)
-    filesize = os.path.getsize(path)
+    with open(path, "rb") as f:
+        data = f.read()
+    filesize = len(data)
+    digest = sha256_hex(data)            # computed BEFORE the file is sent
+    print(f"SHA-256: {digest}")
 
-    send_line(sock, "SEND", target, filename, filesize)
+    send_line(sock, "SEND", target, filename, filesize, digest)
     fields = expect("READY")
     if fields[0] != "READY":
         return
 
-    with open(path, "rb") as f:
-        data = f.read()
     send_exact(sock, data)
 
     fields = expect("SEND_OK")
     if fields[0] == "SEND_OK":
-        print(f"Sent '{filename}' to {target}.")
+        print(f"Sent '{filename}' to {target}. The server verified the SHA-256; "
+              f"{target}'s client checks it again on arrival.")
+    elif fields[1:] == ["INTEGRITY_FAIL"]:
+        print("Integrity check FAILED at the server: the file was changed or corrupted "
+              "on the way. It was not forwarded.")
 
 
 HELP = """
