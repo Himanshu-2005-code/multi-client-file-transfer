@@ -173,28 +173,31 @@ def handle_register(sock, fields):
 
 
 def handle_login(sock, fields):
+    """
+    Returns (username, None) after sending LOGIN_OK, or (None, error_code)
+    WITHOUT sending anything: the caller sends the error, so that on the
+    last allowed attempt it can send TOO_MANY_ATTEMPTS instead (exactly one
+    reply per request).
+    """
     if len(fields) != 3:
-        send_line(sock, "ERROR", "BAD_ARGS")
-        return None
+        return None, "BAD_ARGS"
     _, username, password = fields
 
     with clients_lock:
         already_online = username in active_clients
 
     if already_online:
-        send_line(sock, "ERROR", "USER_ALREADY_ONLINE")
-        return None
+        return None, "USER_ALREADY_ONLINE"
 
     if not check_login(username, password):
-        send_line(sock, "ERROR", "AUTH_FAILED")
-        return None
+        return None, "AUTH_FAILED"
 
     with clients_lock:
         active_clients[username] = sock
 
     send_line(sock, "LOGIN_OK", username)
     print(f"[+] {username} logged in from {sock.getpeername()}")
-    return username
+    return username, None
 
 
 def handle_list(sock):
@@ -409,7 +412,7 @@ def handle_client(raw_sock, addr, tls_ctx):
                     send_line(sock, "ERROR", "ALREADY_LOGGED_IN")
                     continue
                 try:
-                    username = handle_login(sock, fields)
+                    username, error = handle_login(sock, fields)
                 except ConnectionError:
                     break
                 except Exception:
@@ -420,12 +423,13 @@ def handle_client(raw_sock, addr, tls_ctx):
                     except OSError:
                         pass
                     break
-                if username is None:
+                if error:
                     failed_logins += 1
                     if failed_logins >= MAX_LOGIN_ATTEMPTS:
                         print(f"[!] {addr}: {failed_logins} failed logins, disconnecting")
                         send_line(sock, "ERROR", "TOO_MANY_ATTEMPTS")
                         break
+                    send_line(sock, "ERROR", error)
                 continue
 
             if username is None:
