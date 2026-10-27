@@ -208,3 +208,27 @@ All protocol tests pass (5 runs), including a file modified on the server's disk
 2. `python demo/tamper_file.py integrity_test.txt` -> first byte `I` becomes `H`, SHA-256 becomes `0b1c34cb...`
 3. download -> "Integrity check FAILED", expected `4d37e124...`, received `0b1c34cb...`, file not saved
 4. `--restore` then download -> integrity check passed
+
+---
+
+## Step 10: experiments over TLS, and 100 KB / 1 MB / 10 MB secure transfers
+
+**My prompt:** "next"
+
+**AI output:**
+- `experiments: add a shared helper to connect over TLS and log in` (`experiments/secure_conn.py`)
+- `experiments: run test 1 (RTT) over TLS`
+- `experiments: run test 2 (broadcast latency) over TLS`
+- `experiments: run test 3 (throughput) over TLS with integrity checks`
+- `server: send small messages immediately (TCP_NODELAY)` (fix, see below)
+- `experiments: add test 4, secure transfer of 100 KB, 1 MB and 10 MB files`
+
+**Problem found:** after switching to TLS, experiment 2 (broadcast latency) went from ~0.9 ms
+to ~31 ms. Measuring single messages showed only the FIRST message after each TLS login took
+~42 ms (the rest ~0.2 ms); plain-TCP A1 never did this. Cause: Nagle's algorithm plus delayed
+ACKs, triggered by the small TLS records sent right after the handshake. Fix: `TCP_NODELAY` on
+the server's sockets. First message ~0.3 ms, experiment 2 back to ~0.9 ms, throughput unchanged.
+
+**What I checked (loopback, after the fix):** test 1 RTT avg ~0.12 ms; test 2 avg ~0.87 ms;
+test 3 100 MB x 10 clients ~156 MB/s with 10/10 downloads verified; test 4 all nine transfers
+(3 sizes x upload/download/send) PASS the SHA-256 check. Protocol tests pass.
