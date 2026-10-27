@@ -84,13 +84,24 @@ def reader_thread(sock):
         elif command == "DOWNLOAD_OK":
             # The reader thread owns all socket reads, so it must pull the
             # file bytes itself before handing the reply to the main thread.
-            _, filename, filesize = fields
-            filesize = int(filesize)
+            # DOWNLOAD_OK|filename|size|sha256
+            filename, filesize = fields[1], int(fields[2])
+            expected = fields[3].lower() if len(fields) > 3 else None
             data = recv_exact(sock, filesize)
-            path = os.path.join(DOWNLOADS_DIR, filename)
-            with open(path, "wb") as f:
-                f.write(data)
-            reply_queue.put(["DOWNLOAD_OK", filename, str(filesize)])
+            # Integrity check: recompute the digest of what arrived and
+            # compare it with the server's. A file that fails is not saved.
+            got = sha256_hex(data)
+            if expected is None:
+                status = "UNCHECKED"
+            elif got == expected:
+                status = "OK"
+            else:
+                status = "FAIL"
+            if status != "FAIL":
+                with open(os.path.join(DOWNLOADS_DIR, filename), "wb") as f:
+                    f.write(data)
+            reply_queue.put(["DOWNLOAD_OK", filename, str(filesize), status,
+                             expected or "", got])
         else:
             reply_queue.put(fields)
 
@@ -210,8 +221,17 @@ def do_download(sock):
     send_line(sock, "DOWNLOAD", filename)
     fields = expect("DOWNLOAD_OK")
     if fields[0] == "DOWNLOAD_OK":
-        _, name, size = fields
+        _, name, size, status, expected, got = fields
+        if status == "FAIL":
+            print(f"Integrity check FAILED for '{name}': the file was modified or corrupted.")
+            print(f"  expected SHA-256: {expected}")
+            print(f"  received SHA-256: {got}")
+            print("  The file was NOT saved.")
+            return
         print(f"Downloaded '{name}' ({size} bytes) -> {DOWNLOADS_DIR}")
+        print(f"SHA-256: {got}")
+        if status == "OK":
+            print("Integrity check passed: matches the digest recorded at upload.")
 
 
 def do_send(sock):
