@@ -254,20 +254,26 @@ def do_send(sock):
         print("File not found locally.")
         return
     filename = os.path.basename(path)
-    filesize = os.path.getsize(path)
+    with open(path, "rb") as f:
+        data = f.read()
+    filesize = len(data)
+    digest = sha256_hex(data)            # computed BEFORE the file is sent
+    print(f"SHA-256: {digest}")
 
-    send_line(sock, "SEND", target, filename, filesize)
+    send_line(sock, "SEND", target, filename, filesize, digest)
     fields = expect("READY")
     if fields[0] != "READY":
         return
 
-    with open(path, "rb") as f:
-        data = f.read()
     send_exact(sock, data)
 
     fields = expect("SEND_OK")
     if fields[0] == "SEND_OK":
-        print(f"Sent '{filename}' to {target}.")
+        print(f"Sent '{filename}' to {target}. The server verified the SHA-256; "
+              f"{target}'s client checks it again on arrival.")
+    elif fields[1:] == ["INTEGRITY_FAIL"]:
+        print("Integrity check FAILED at the server: the file was changed or corrupted "
+              "on the way. It was not forwarded.")
 
 
 HELP = """
