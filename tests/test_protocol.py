@@ -109,6 +109,21 @@ def run_checks():
     check("login as an unregistered user rejected", r == ["ERROR", "AUTH_FAILED"])
     unknown.close()
 
+    guesser = connect()
+    replies = []
+    for guess in ("a", "b", "c"):
+        send_line(guesser, "LOGIN", "alice", guess)
+        replies.append(recv_line(guesser))
+    replies.append(recv_line(guesser))
+    try:
+        closed = guesser.recv(1) == b""
+    except OSError:
+        closed = True
+    check("3 failed logins -> TOO_MANY_ATTEMPTS and disconnect",
+          replies[:3] == [["ERROR", "AUTH_FAILED"]] * 3
+          and replies[3] == ["ERROR", "TOO_MANY_ATTEMPTS"] and closed)
+    guesser.close()
+
     alice = connect()
     send_line(alice, "LOGIN", "alice", "pw1")
     r = recv_line(alice)

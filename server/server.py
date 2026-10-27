@@ -135,6 +135,11 @@ def check_login(username, password):
     return verify_password(password, stored)
 
 
+# A connection is closed after this many failed logins, so a password
+# cannot be guessed by trying thousands of times on one connection.
+MAX_LOGIN_ATTEMPTS = 3
+
+
 # Usernames end up in users.txt ("name:hash") and in comma-separated LIST
 # replies, so ':' ',' '|' and spaces are not allowed.
 USERNAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,32}")
@@ -382,6 +387,7 @@ def handle_client(raw_sock, addr, tls_ctx):
     print(f"[TLS] {addr}: {sock.version()}, cipher {sock.cipher()[0]}")
 
     username = None
+    failed_logins = 0
     try:
         while True:
             try:
@@ -414,6 +420,12 @@ def handle_client(raw_sock, addr, tls_ctx):
                     except OSError:
                         pass
                     break
+                if username is None:
+                    failed_logins += 1
+                    if failed_logins >= MAX_LOGIN_ATTEMPTS:
+                        print(f"[!] {addr}: {failed_logins} failed logins, disconnecting")
+                        send_line(sock, "ERROR", "TOO_MANY_ATTEMPTS")
+                        break
                 continue
 
             if username is None:
