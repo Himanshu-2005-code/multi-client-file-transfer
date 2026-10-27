@@ -35,3 +35,28 @@ The write-lock bug was found while preparing the A1 demo (4 clients sending
 showed up as a rare failure of the "allusers lists charlie as offline" test.
 
 **What I checked:** `python tests/test_protocol.py` passes (40 runs in a row).
+
+---
+
+## Step 2: certificate and keys with OpenSSL
+
+**My prompts:**
+1. "is the open ssl allowed"
+2. "okay then continue"
+
+**AI output:**
+- `certs: add the extensions for the server certificate` (`certs/server_ext.cnf`)
+- `certs: add key identifiers to the server certificate`
+- `certs: add an OpenSSL script to create the CA and server certificate` (`certs/gen_certs.py`)
+- `gitignore: keep generated keys and certificates out of git`
+
+Tool choice: OpenSSL (open-source, Apache 2.0). The assignment needs an X.509
+certificate for TLS; PuTTYgen only makes SSH key pairs, not certificates.
+
+The first version failed a test: Python 3.13+ verifies certificates strictly and
+rejected a CA certificate without `basicConstraints CA:TRUE` / `keyUsage keyCertSign`.
+The AI added those extensions and the key identifiers.
+
+**What I checked:** `python certs/gen_certs.py` ends with `server.crt: OK`; a test
+TLS connection with Python's `ssl` module works (TLS 1.3) and a connection to an
+address that is not in the certificate is rejected.
