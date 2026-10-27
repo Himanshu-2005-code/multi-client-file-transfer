@@ -7,6 +7,7 @@ client's control messages (COMMAND|FIELD|...) to a handler.
 Run:  python server.py [host] [port]
 """
 
+import argparse
 import os
 import socket
 import ssl
@@ -277,18 +278,18 @@ def cleanup(username, sock):
         pass
 
 
-def make_tls_context():
+def make_tls_context(cert_file=CERT_FILE, key_file=KEY_FILE):
     """
     TLS settings for the server side. Every client connection is wrapped
     with this context, so each client gets its own TLS session (its own
     handshake and its own session keys).
     """
-    if not (os.path.isfile(CERT_FILE) and os.path.isfile(KEY_FILE)):
-        sys.exit("[!] Missing certs/server.crt or certs/server.key. "
+    if not (os.path.isfile(cert_file) and os.path.isfile(key_file)):
+        sys.exit(f"[!] Missing {cert_file} or {key_file}. "
                  "Run: python certs/gen_certs.py")
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2   # refuse old SSL/TLS versions
-    ctx.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+    ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
     return ctx
 
 
@@ -389,9 +390,15 @@ def handle_client(raw_sock, addr, tls_ctx):
 
 
 def main():
-    host = sys.argv[1] if len(sys.argv) > 1 else HOST
-    port = int(sys.argv[2]) if len(sys.argv) > 2 else PORT
-    tls_ctx = make_tls_context()
+    ap = argparse.ArgumentParser(description="Secure multi-client file transfer server")
+    ap.add_argument("host", nargs="?", default=HOST)
+    ap.add_argument("port", nargs="?", type=int, default=PORT)
+    ap.add_argument("--cert", default=CERT_FILE, help="server certificate (default certs/server.crt)")
+    ap.add_argument("--key", default=KEY_FILE, help="server private key (default certs/server.key)")
+    args = ap.parse_args()
+    host, port = args.host, args.port
+    tls_ctx = make_tls_context(args.cert, args.key)
+    print(f"[*] Certificate: {os.path.normpath(args.cert)}")
 
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
