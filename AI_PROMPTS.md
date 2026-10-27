@@ -96,3 +96,22 @@ address that is not in the certificate is rejected.
 - Connecting to the server at `127.0.0.2` (an address not in the certificate) is rejected:
   `[!] Server certificate rejected: IP address mismatch, certificate is not valid for '127.0.0.2'`.
 - `python tests/test_protocol.py` still passes.
+
+---
+
+## Step 5: demo for rejecting an untrusted certificate
+
+**My prompt:** "next"
+
+**AI output:**
+- `certs: add a script that makes an untrusted (rogue) certificate` (`certs/gen_rogue_cert.py`: self-signed, valid names and dates, not signed by our CA)
+- `server: add --cert and --key options` (so a fake server can be started with the rogue certificate)
+- `tests: check that the client refuses an untrusted server`
+
+OpenSSL 3.0's `req -x509` cannot create an already-expired certificate (`-days 0` is
+rejected), so the demo covers two cases of an invalid/untrusted certificate:
+not signed by our CA (this step) and issued for a different address (step 4).
+
+**What I checked:** a server started with `--cert certs/rogue.crt --key certs/rogue.key`
+is refused by the client (`Server certificate rejected: self-signed certificate`), and the
+fake server's log shows `tlsv1 alert unknown ca` with no login received. The new test passes.
