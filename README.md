@@ -304,6 +304,13 @@ and send (including a corrupted file that must not be forwarded).
   login waited ~42 ms (broadcast latency went from 0.9 ms to 31 ms). Cause: Nagle's
   algorithm with delayed ACKs, triggered by the small TLS records sent right after the
   handshake. Fixed with `TCP_NODELAY` on the server's sockets.
+- **Client hung on its first command (intermittent).** Testing the packaged zip, the
+  client sometimes hung right after sending REGISTER (3 of 20 starts in one test). Thread
+  dumps showed the reader thread inside an SSL read while the main thread had just written
+  the command. Right after the handshake a TLS 1.3 server sends session tickets; the
+  client's reader thread processed them while the main thread wrote on the same TLS
+  connection, and the write was lost. Fixed by sending no session tickets
+  (`ctx.num_tickets = 0`; we do not use session resumption): 20 of 20 starts work.
 - **From A1:** concurrent writes to one client's socket could mix bytes (1 of 4 files
   intact in a stress test); fixed with a write lock per socket. LOGOUT_OK was sent before
   the user was marked offline; now the user goes offline first.
