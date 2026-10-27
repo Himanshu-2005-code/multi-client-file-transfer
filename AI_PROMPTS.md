@@ -115,3 +115,31 @@ not signed by our CA (this step) and issued for a different address (step 4).
 **What I checked:** a server started with `--cert certs/rogue.crt --key certs/rogue.key`
 is refused by the client (`Server certificate rejected: self-signed certificate`), and the
 fake server's log shows `tlsv1 alert unknown ca` with no login received. The new test passes.
+
+---
+
+## Step 6: passwords and authentication
+
+**My input:** answered the AI's question "A1 auto-registers any unknown username... What should
+step 6 do?" with **"Add a REGISTER command"**.
+
+**AI output:**
+- `server: add salted password hashing helpers` (PBKDF2-HMAC-SHA256, 16-byte random salt, 200,000 iterations, constant-time compare)
+- `server: store salted password hashes instead of plaintext` (`users.txt` holds `name:pbkdf2_sha256$...`)
+- `server: add a REGISTER command` (errors: USER_EXISTS, BAD_USERNAME, BAD_PASSWORD)
+- `client: add a register option before login`
+- `tests: register users before logging in` (+ checks that `users.txt` has no plaintext password)
+- `server: reject LOGIN for unregistered users` (same AUTH_FAILED reply and same time as a wrong password)
+- `server: disconnect after 3 failed logins`
+- `client: exit cleanly when the server ends the login after 3 failures`
+- `server: send exactly one reply for each LOGIN attempt` (fix: the first version sent two replies on
+  the 3rd failure and the client crashed with SSLEOFError)
+
+Passwords are never sent in plaintext because LOGIN/REGISTER only travel inside the TLS
+connection (steps 3-4), and never stored in plaintext because of the hashing above.
+
+**What I checked:** all protocol tests pass (5 runs), including: register, duplicate name
+rejected, invalid name rejected, no plaintext in users.txt, wrong password rejected, unknown user
+rejected, 3rd failed login disconnects. Through the real client: register -> login works; three
+wrong passwords end with "Too many failed logins". A known and an unknown username both take
+about 140-150 ms to reject.

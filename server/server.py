@@ -8,7 +8,10 @@ Run:  python server.py [host] [port]
 """
 
 import argparse
+import hashlib
+import hmac
 import os
+import re
 import socket
 import ssl
 import sys
@@ -59,6 +62,39 @@ def send_exact(sock, data):
         _send_exact(sock, data)
 
 
+# ---------------------------------------------------------------------------
+# Password hashing (passwords are never stored in plaintext)
+# ---------------------------------------------------------------------------
+# PBKDF2-HMAC-SHA256 from Python's hashlib: a deliberately slow, salted hash.
+# Stored as   pbkdf2_sha256$<iterations>$<salt hex>$<hash hex>
+# - salt: 16 random bytes per user, so two users with the same password get
+#   different hashes and precomputed tables (rainbow tables) are useless.
+# - iterations: makes every guess slow for someone who steals users.txt.
+HASH_SCHEME = "pbkdf2_sha256"
+HASH_ITERATIONS = 200_000
+
+
+def hash_password(password):
+    salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, HASH_ITERATIONS)
+    return f"{HASH_SCHEME}${HASH_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password, stored):
+    """Recompute the hash with the stored salt and compare."""
+    try:
+        scheme, iterations, salt_hex, digest_hex = stored.split("$")
+    except ValueError:
+        return False
+    if scheme != HASH_SCHEME:
+        return False
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
+                                 bytes.fromhex(salt_hex), int(iterations))
+    # constant-time comparison: the time taken does not leak how many
+    # leading bytes matched
+    return hmac.compare_digest(digest.hex(), digest_hex)
+
+
 def load_users():
     users = {}
     if os.path.exists(USERS_FILE):
@@ -72,51 +108,96 @@ def load_users():
     return users
 
 
-def save_user(username, password):
+def save_user(username, password_hash):
+    """Append one 'username:hash' line. The plaintext password is never written."""
     with open(USERS_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{username}:{password}\n")
+        f.write(f"{username}:{password_hash}\n")
 
 
 users_lock = threading.Lock()
 
 
-def check_or_register(username, password):
+# Used for unknown usernames so that a login attempt takes the same time
+# whether or not the user exists (no username guessing by timing).
+_DUMMY_HASH = hash_password("dummy password")
+
+
+def check_login(username, password):
     """
-    Returns True if the credentials are valid. Unknown usernames are
-    auto-registered with the given password (per assignment scope: plain
-    unencrypted username/password, no separate signup flow).
+    True only if the user is registered AND the password matches.
+    Unknown users are rejected (accounts are created with REGISTER only).
     """
     with users_lock:
-        users = load_users()
-        if username in users:
-            return users[username] == password
-        save_user(username, password)
-        return True
+        stored = load_users().get(username)
+    if stored is None:
+        verify_password(password, _DUMMY_HASH)   # same work as a real check
+        return False
+    return verify_password(password, stored)
+
+
+# A connection is closed after this many failed logins, so a password
+# cannot be guessed by trying thousands of times on one connection.
+MAX_LOGIN_ATTEMPTS = 3
+
+
+# Usernames end up in users.txt ("name:hash") and in comma-separated LIST
+# replies, so ':' ',' '|' and spaces are not allowed.
+USERNAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,32}")
+
+
+def register_user(username, password):
+    """Create a new account. Returns None on success, else an error code."""
+    if not USERNAME_RE.fullmatch(username):
+        return "BAD_USERNAME"
+    if not password:
+        return "BAD_PASSWORD"
+    new_hash = hash_password(password)          # slow part, outside the lock
+    with users_lock:
+        if username in load_users():
+            return "USER_EXISTS"
+        save_user(username, new_hash)
+    return None
+
+
+def handle_register(sock, fields):
+    if len(fields) != 3:
+        send_line(sock, "ERROR", "BAD_ARGS")
+        return
+    _, username, password = fields
+    error = register_user(username, password)
+    if error:
+        send_line(sock, "ERROR", error)
+        return
+    send_line(sock, "REGISTER_OK", username)
+    print(f"[+] new account: {username}")
 
 
 def handle_login(sock, fields):
+    """
+    Returns (username, None) after sending LOGIN_OK, or (None, error_code)
+    WITHOUT sending anything: the caller sends the error, so that on the
+    last allowed attempt it can send TOO_MANY_ATTEMPTS instead (exactly one
+    reply per request).
+    """
     if len(fields) != 3:
-        send_line(sock, "ERROR", "BAD_ARGS")
-        return None
+        return None, "BAD_ARGS"
     _, username, password = fields
 
     with clients_lock:
         already_online = username in active_clients
 
     if already_online:
-        send_line(sock, "ERROR", "USER_ALREADY_ONLINE")
-        return None
+        return None, "USER_ALREADY_ONLINE"
 
-    if not check_or_register(username, password):
-        send_line(sock, "ERROR", "AUTH_FAILED")
-        return None
+    if not check_login(username, password):
+        return None, "AUTH_FAILED"
 
     with clients_lock:
         active_clients[username] = sock
 
     send_line(sock, "LOGIN_OK", username)
     print(f"[+] {username} logged in from {sock.getpeername()}")
-    return username
+    return username, None
 
 
 def handle_list(sock):
@@ -309,6 +390,7 @@ def handle_client(raw_sock, addr, tls_ctx):
     print(f"[TLS] {addr}: {sock.version()}, cipher {sock.cipher()[0]}")
 
     username = None
+    failed_logins = 0
     try:
         while True:
             try:
@@ -318,12 +400,19 @@ def handle_client(raw_sock, addr, tls_ctx):
 
             command = fields[0] if fields else ""
 
+            if command == "REGISTER":
+                if username is not None:
+                    send_line(sock, "ERROR", "ALREADY_LOGGED_IN")
+                    continue
+                handle_register(sock, fields)
+                continue
+
             if command == "LOGIN":
                 if username is not None:
                     send_line(sock, "ERROR", "ALREADY_LOGGED_IN")
                     continue
                 try:
-                    username = handle_login(sock, fields)
+                    username, error = handle_login(sock, fields)
                 except ConnectionError:
                     break
                 except Exception:
@@ -334,6 +423,13 @@ def handle_client(raw_sock, addr, tls_ctx):
                     except OSError:
                         pass
                     break
+                if error:
+                    failed_logins += 1
+                    if failed_logins >= MAX_LOGIN_ATTEMPTS:
+                        print(f"[!] {addr}: {failed_logins} failed logins, disconnecting")
+                        send_line(sock, "ERROR", "TOO_MANY_ATTEMPTS")
+                        break
+                    send_line(sock, "ERROR", error)
                 continue
 
             if username is None:

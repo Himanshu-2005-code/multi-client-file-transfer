@@ -111,7 +111,18 @@ def do_login(sock):
     if fields[0] == "LOGIN_OK":
         print(f"Logged in as {username}")
         return username
+    if fields[1:] in (["TOO_MANY_ATTEMPTS"], ["DISCONNECTED"]):
+        sys.exit("Too many failed logins: the server closed the connection.")
     return None
+
+
+def do_register(sock):
+    username = input("New username: ").strip()
+    password = input("New password: ").strip()
+    send_line(sock, "REGISTER", username, password)
+    fields = expect("REGISTER_OK")
+    if fields[0] == "REGISTER_OK":
+        print(f"Account '{username}' created. Now log in.")
 
 
 def do_list(sock):
@@ -267,7 +278,11 @@ def main():
 
     username = None
     while username is None:
-        username = do_login(sock)
+        choice = input("Login (l) or register a new account (r)? ").strip().lower()
+        if choice == "r":
+            do_register(sock)
+        elif choice == "l":
+            username = do_login(sock)
 
     print(HELP)
     try:

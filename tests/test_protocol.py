@@ -54,6 +54,24 @@ def wait_for_server(timeout=5.0, port=PORT):
 
 
 def run_checks():
+    # --- registration ---
+    reg = connect()
+    for name, pw in (("alice", "pw1"), ("bob", "pw2"), ("charlie", "pw3")):
+        send_line(reg, "REGISTER", name, pw)
+        r = recv_line(reg)
+        check(f"register {name}", r[0] == "REGISTER_OK" and r[1] == name)
+    send_line(reg, "REGISTER", "alice", "other")
+    r = recv_line(reg)
+    check("registering a taken name rejected", r == ["ERROR", "USER_EXISTS"])
+    send_line(reg, "REGISTER", "bad,name", "x")
+    r = recv_line(reg)
+    check("invalid username rejected", r == ["ERROR", "BAD_USERNAME"])
+    reg.close()
+
+    users_txt = open(os.path.join(ROOT, "server", "users.txt"), encoding="utf-8").read()
+    check("users.txt holds no plaintext passwords",
+          all(pw not in users_txt for pw in ("pw1", "pw2", "pw3")) and "pbkdf2_sha256$" in users_txt)
+
     # --- login two users ---
     alice = connect()
     send_line(alice, "LOGIN", "alice", "pw1")
@@ -84,6 +102,26 @@ def run_checks():
     r = recv_line(wrongpw)
     check("wrong password rejected", r[0] == "ERROR" and r[1] == "AUTH_FAILED")
     wrongpw.close()
+
+    unknown = connect()
+    send_line(unknown, "LOGIN", "mallory", "pw1")
+    r = recv_line(unknown)
+    check("login as an unregistered user rejected", r == ["ERROR", "AUTH_FAILED"])
+    unknown.close()
+
+    guesser = connect()
+    replies = []
+    for guess in ("a", "b", "c"):
+        send_line(guesser, "LOGIN", "alice", guess)
+        replies.append(recv_line(guesser))
+    try:
+        closed = guesser.recv(1) == b""
+    except OSError:
+        closed = True
+    check("3rd failed login -> TOO_MANY_ATTEMPTS and disconnect",
+          replies == [["ERROR", "AUTH_FAILED"], ["ERROR", "AUTH_FAILED"],
+                      ["ERROR", "TOO_MANY_ATTEMPTS"]] and closed)
+    guesser.close()
 
     alice = connect()
     send_line(alice, "LOGIN", "alice", "pw1")
