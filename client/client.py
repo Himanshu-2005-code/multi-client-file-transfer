@@ -14,6 +14,7 @@ Run:  python client.py [host] [port]
 import os
 import queue
 import socket
+import ssl
 import sys
 import threading
 
@@ -24,6 +25,24 @@ DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
 RECEIVED_DIR = os.path.join(BASE_DIR, "received")  # files pushed via SEND
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 os.makedirs(RECEIVED_DIR, exist_ok=True)
+
+# The CA certificate this client trusts (made by certs/gen_certs.py). Only a
+# server whose certificate is signed by this CA will be accepted.
+CA_FILE = os.path.join(BASE_DIR, "..", "certs", "ca.crt")
+
+
+def make_tls_context():
+    """
+    Client-side TLS settings:
+    - trust ONLY our own CA (not the system's list of public CAs)
+    - require the server to present a valid certificate (CERT_REQUIRED)
+    - check the certificate is for the address we connected to (check_hostname)
+    """
+    if not os.path.isfile(CA_FILE):
+        sys.exit("[!] Missing certs/ca.crt. Run: python certs/gen_certs.py")
+    ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=CA_FILE)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
 
 reply_queue = queue.Queue()
 
@@ -220,8 +239,28 @@ def main():
     host = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 5050
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((host, port))
+    raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        raw.connect((host, port))
+    except OSError as e:
+        sys.exit(f"[!] Cannot reach the server at {host}:{port}: {e}")
+
+    # TLS handshake: the server sends its certificate and we verify it
+    # (signed by our CA, valid dates, issued for `host`). If any check
+    # fails we refuse to talk to this server at all.
+    try:
+        sock = make_tls_context().wrap_socket(raw, server_hostname=host)
+    except ssl.SSLCertVerificationError as e:
+        raw.close()
+        sys.exit(f"[!] Server certificate rejected: {e.verify_message.rstrip('.')}. "
+                 "Not connecting to an untrusted server.")
+    except (ssl.SSLError, OSError) as e:
+        raw.close()
+        sys.exit(f"[!] Secure connection failed: {e}")
+    print(f"Secure connection: {sock.version()}, cipher {sock.cipher()[0]}")
+    print(f"Server certificate verified (issued to "
+          f"{dict(x[0] for x in sock.getpeercert()['subject'])['commonName']}, "
+          f"by {dict(x[0] for x in sock.getpeercert()['issuer'])['commonName']})")
 
     t = threading.Thread(target=reader_thread, args=(sock,), daemon=True)
     t.start()
