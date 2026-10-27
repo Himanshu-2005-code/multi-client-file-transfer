@@ -298,6 +298,8 @@ def main():
             os.remove(users_file)
         if os.path.exists(storage_dir):
             shutil.rmtree(storage_dir)
+        if os.path.exists(digest_dir):
+            shutil.rmtree(digest_dir)
 
 
 if __name__ == "__main__":
