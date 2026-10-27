@@ -73,14 +73,27 @@ def reader_thread(sock):
             _, sender, text = fields[0], fields[1], "|".join(fields[2:])
             print(f"\n[BROADCAST from {sender}] {text}\n> ", end="", flush=True)
         elif command == "SEND_INCOMING":
-            _, filename, sender, filesize = fields
-            filesize = int(filesize)
+            # SEND_INCOMING|filename|sender|size|sha256
+            filename, sender, filesize = fields[1], fields[2], int(fields[3])
+            expected = fields[4].lower() if len(fields) > 4 else None
             data = recv_exact(sock, filesize)
+            got = sha256_hex(data)
+            if expected is not None and got != expected:
+                # digest computed by the sender does not match what arrived
+                print(f"\n[!] Integrity check FAILED for '{filename}' from {sender}: "
+                      f"the file was modified or corrupted.\n"
+                      f"    expected SHA-256: {expected}\n"
+                      f"    received SHA-256: {got}\n"
+                      f"    The file was NOT saved.\n> ", end="", flush=True)
+                continue
             path = os.path.join(RECEIVED_DIR, filename)
             with open(path, "wb") as f:
                 f.write(data)
+            check = ("Integrity check passed (SHA-256 matches the sender's)."
+                     if expected else "")
             print(f"\n[+] Received '{filename}' from {sender} "
-                  f"({filesize} bytes) -> {RECEIVED_DIR}\n> ", end="", flush=True)
+                  f"({filesize} bytes) -> {RECEIVED_DIR}\n"
+                  f"    SHA-256: {got}\n    {check}\n> ", end="", flush=True)
         elif command == "DOWNLOAD_OK":
             # The reader thread owns all socket reads, so it must pull the
             # file bytes itself before handing the reply to the main thread.
