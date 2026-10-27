@@ -8,6 +8,8 @@ Run:  python server.py [host] [port]
 """
 
 import argparse
+import hashlib
+import hmac
 import os
 import socket
 import ssl
@@ -57,6 +59,39 @@ def send_line(sock, *fields):
 def send_exact(sock, data):
     with write_lock(sock):
         _send_exact(sock, data)
+
+
+# ---------------------------------------------------------------------------
+# Password hashing (passwords are never stored in plaintext)
+# ---------------------------------------------------------------------------
+# PBKDF2-HMAC-SHA256 from Python's hashlib: a deliberately slow, salted hash.
+# Stored as   pbkdf2_sha256$<iterations>$<salt hex>$<hash hex>
+# - salt: 16 random bytes per user, so two users with the same password get
+#   different hashes and precomputed tables (rainbow tables) are useless.
+# - iterations: makes every guess slow for someone who steals users.txt.
+HASH_SCHEME = "pbkdf2_sha256"
+HASH_ITERATIONS = 200_000
+
+
+def hash_password(password):
+    salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, HASH_ITERATIONS)
+    return f"{HASH_SCHEME}${HASH_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password, stored):
+    """Recompute the hash with the stored salt and compare."""
+    try:
+        scheme, iterations, salt_hex, digest_hex = stored.split("$")
+    except ValueError:
+        return False
+    if scheme != HASH_SCHEME:
+        return False
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
+                                 bytes.fromhex(salt_hex), int(iterations))
+    # constant-time comparison: the time taken does not leak how many
+    # leading bytes matched
+    return hmac.compare_digest(digest.hex(), digest_hex)
 
 
 def load_users():
