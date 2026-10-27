@@ -9,6 +9,7 @@ Run:  python server.py [host] [port]
 
 import os
 import socket
+import ssl
 import sys
 import threading
 import traceback
@@ -23,6 +24,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 USERS_FILE = os.path.join(BASE_DIR, "users.txt")
 STORAGE_DIR = os.path.join(BASE_DIR, "storage")
 os.makedirs(STORAGE_DIR, exist_ok=True)
+
+# Server certificate and private key, made by certs/gen_certs.py (OpenSSL).
+CERTS_DIR = os.path.join(BASE_DIR, "..", "certs")
+CERT_FILE = os.path.join(CERTS_DIR, "server.crt")
+KEY_FILE = os.path.join(CERTS_DIR, "server.key")
 
 # username -> socket, for every currently-logged-in client
 active_clients = {}
@@ -271,6 +277,21 @@ def cleanup(username, sock):
         pass
 
 
+def make_tls_context():
+    """
+    TLS settings for the server side. Every client connection is wrapped
+    with this context, so each client gets its own TLS session (its own
+    handshake and its own session keys).
+    """
+    if not (os.path.isfile(CERT_FILE) and os.path.isfile(KEY_FILE)):
+        sys.exit("[!] Missing certs/server.crt or certs/server.key. "
+                 "Run: python certs/gen_certs.py")
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2   # refuse old SSL/TLS versions
+    ctx.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+    return ctx
+
+
 def handle_client(sock, addr):
     username = None
     try:
@@ -356,6 +377,7 @@ def handle_client(sock, addr):
 def main():
     host = sys.argv[1] if len(sys.argv) > 1 else HOST
     port = int(sys.argv[2]) if len(sys.argv) > 2 else PORT
+    tls_ctx = make_tls_context()
 
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
