@@ -430,6 +430,10 @@ def handle_client(raw_sock, addr, tls_ctx):
     # broken handshake never holds up accept() for everyone else. The
     # timeout stops a client that connects but never speaks TLS from
     # keeping a thread forever.
+    # Send small messages immediately (disable Nagle's algorithm). Without
+    # this, the first small message after the TLS handshake waited ~40 ms
+    # for a delayed ACK. File transfers are large writes and unaffected.
+    raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     try:
         raw_sock.settimeout(10)
         sock = tls_ctx.wrap_socket(raw_sock, server_side=True)
