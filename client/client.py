@@ -14,6 +14,7 @@ Run:  python client.py [host] [port]
 import os
 import queue
 import socket
+import ssl
 import sys
 import threading
 
@@ -24,6 +25,24 @@ DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
 RECEIVED_DIR = os.path.join(BASE_DIR, "received")  # files pushed via SEND
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 os.makedirs(RECEIVED_DIR, exist_ok=True)
+
+# The CA certificate this client trusts (made by certs/gen_certs.py). Only a
+# server whose certificate is signed by this CA will be accepted.
+CA_FILE = os.path.join(BASE_DIR, "..", "certs", "ca.crt")
+
+
+def make_tls_context():
+    """
+    Client-side TLS settings:
+    - trust ONLY our own CA (not the system's list of public CAs)
+    - require the server to present a valid certificate (CERT_REQUIRED)
+    - check the certificate is for the address we connected to (check_hostname)
+    """
+    if not os.path.isfile(CA_FILE):
+        sys.exit("[!] Missing certs/ca.crt. Run: python certs/gen_certs.py")
+    ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=CA_FILE)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
 
 reply_queue = queue.Queue()
 
