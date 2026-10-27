@@ -42,16 +42,21 @@ and the generated keys and certificates in `certs/`.
 
 Run all commands from the project folder.
 
-**1. Certificates.** The submitted zip already contains them (made with
-`certs/gen_certs.py`), so the server and client run straight away. To make new ones:
+**1. Certificates.** The submitted zip already contains everything needed to run
+(made with `certs/gen_certs.py`): `ca.crt`, `server.crt`, `server.key`, and for the demos
+`expired.crt`, `rogue.crt`, `rogue.key`. So the server and client run straight away.
+The CA's private key `ca.key` is deliberately **not** in the zip: it is only needed to
+sign certificates, and anyone holding it could make certificates every client trusts.
+To make a completely new set (new CA included):
 
 ```
 python certs/gen_certs.py
 ```
 
-This makes `ca.key`, `ca.crt`, `server.key`, `server.csr` and `server.crt` and ends
-with `server.crt: OK`. The keys in the zip are test keys for this assignment only. To run the server on another laptop on the same network, add
-that laptop's IP: `python certs/gen_certs.py 192.168.1.5`.
+This makes `ca.key`, `ca.crt`, `server.key`, `server.csr`, `server.crt` and `expired.crt`,
+and checks the chain (`server.crt: OK`). The keys in the zip are test keys for this
+assignment only. To run the server on another laptop on the same network, add that
+laptop's IP: `python certs/gen_certs.py 192.168.1.5`.
 
 **2. Start the server** (default `0.0.0.0:5050`):
 
@@ -67,7 +72,7 @@ python client/client.py 192.168.1.5 5050      (server on another machine)
 ```
 
 The client prints the TLS version and who the certificate was issued to. Choose `r`
-to register a new account, then `l` to log in. Type `help` for the commands:
+to register a new account, then `l` to log in (the password is not shown while typing). Type `help` for the commands:
 `list`, `allusers`, `files`, `msg`, `broadcast`, `upload`, `download`, `send`, `logout`.
 Uploads and sends print the file's SHA-256; downloads and received files report whether
 the integrity check passed.
@@ -187,8 +192,8 @@ Alice                         Server                          Bob
 - **Certificates (`certs/gen_certs.py`, OpenSSL).** We act as our own Certificate
   Authority: `ca.key` signs `server.crt`. The server certificate lists the names it is
   valid for (`localhost`, `127.0.0.1`, plus any IP given to the script) and can only be
-  used for TLS server authentication. The private keys never leave the machine and are
-  in `.gitignore`.
+  used for TLS server authentication. The private keys are in `.gitignore`, and the
+  CA's key is not part of the submission.
 - **TLS (Python `ssl`, built on OpenSSL).** Server: `make_tls_context()` loads
   `server.crt`/`server.key`, minimum TLS 1.2; each accepted socket is wrapped in its own
   thread (10 s handshake timeout), so each client gets an independent session with its
@@ -207,7 +212,9 @@ Alice                         Server                          Bob
 
 ## Demos
 
-### 1. The client rejects an untrusted server
+### 1. The client rejects untrusted and invalid certificates
+
+**Untrusted (not signed by our CA):**
 
 ```
 python certs/gen_rogue_cert.py
@@ -219,7 +226,18 @@ python client/client.py
 (what a fake server in a man-in-the-middle attack would have). The client prints
 `[!] Server certificate rejected: self-signed certificate. Not connecting to an untrusted server.`
 and never asks for the password; the fake server logs `tlsv1 alert unknown ca`.
-Restart the real server (without `--cert/--key`) afterwards.
+
+**Invalid: expired.** `expired.crt` is signed by our CA and issued for localhost /
+127.0.0.1, but was only valid in January 2025:
+
+```
+python server/server.py --cert certs/expired.crt --key certs/server.key
+python client/client.py
+```
+
+The client prints `[!] Server certificate rejected: certificate has expired.`
+
+Restart the real server (without `--cert/--key`) after these demos.
 
 **Wrong address:** start the real server with `python server/server.py 0.0.0.0` and run
 `python client/client.py 127.0.0.2`. The certificate is not issued for 127.0.0.2, so the
@@ -298,8 +316,8 @@ authenticated (AES-256-GCM) on both ends and hashed (SHA-256) on both ends. The 
 throughput run is too short (~0.03-0.05 s) to compare reliably. "Send" is slowest because
 the file crosses two TLS connections and is checked twice.
 
-`tests/test_protocol.py` starts its own server and runs 47 checks: the untrusted-certificate
-rejection, registration and login rules, no plaintext in `users.txt`, every A1 command,
+`tests/test_protocol.py` starts its own server and runs 48 checks: rejection of an
+untrusted and an expired certificate, registration and login rules, no plaintext in `users.txt`, every A1 command,
 and the integrity checks for upload, download (including a file modified on the server)
 and send (including a corrupted file that must not be forwarded).
 
@@ -336,8 +354,6 @@ and send (including a corrupted file that must not be forwarded).
   server; signing digests with the uploader's private key would cover that.
 - Only the server is authenticated by certificate; clients authenticate with passwords
   (client certificates, i.e. mutual TLS, would be the next step).
-- An already-expired certificate is not part of the demo: OpenSSL 3.0's `req -x509`
-  cannot create one directly.
 
 ## Use of AI
 
@@ -370,6 +386,7 @@ auto-registration, editing the stored file for the tamper demo).
 | 11 | "next" | this README |
 | 12 | Chose "Include them" (certificates in the zip) | `2024261_A2.zip` |
 | 13 | "next"; chose "Full technical report"; "you can run it on my laptop" | experiments run on my laptop, client TCP_NODELAY fix, `2024261_A2.pdf` |
+| 14 | "check alll the requirements as i donot wantt o lose marks" | requirement audit; expired-certificate demo; CA key left out of the zip; password hidden while typing |
 
 Questions I asked the AI to understand the material (no code produced): "what is tls",
 the CN syllabus slides (to check which security topics my course covers), and the
