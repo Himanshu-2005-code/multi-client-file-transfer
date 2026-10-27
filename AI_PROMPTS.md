@@ -302,3 +302,23 @@ passes 5/5.
 
 A packet capture could not be run inside the laptop's VM (no capture permission), so the
 report uses the loopback capture from step 11; the Wireshark screenshot is mine to add.
+
+---
+
+## Step 14: requirement audit before submission
+
+**My prompt:** "check alll the requirements as i donot wantt o lose marks"
+
+**AI output:** an audit script (not part of the submission) that unzips the submission and checks
+every requirement of the A2 PDF and every A1 command with the real client program, plus a packet
+capture of the whole run. First result: 34/36. The two gaps, and one extra fix:
+- `certs: also make an expired certificate for the rejection demo` ("reject invalid or untrusted
+  certificates": until then only untrusted and wrong-address certificates were demonstrated;
+  `openssl ca` can set past dates, which `req -x509` cannot)
+- `tests: check that the client rejects an expired certificate` (48 checks)
+- `client: hide the password while it is typed` (getpass on a terminal)
+- `readme: expired-certificate demo, CA key not shipped, 48 checks`
+- The zip no longer contains `certs/ca.key`: it is only needed to sign certificates, and anyone
+  holding it could make certificates every client trusts.
+
+**What I checked:** the audit on the rebuilt zip (see the final result in the report).

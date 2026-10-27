@@ -270,36 +270,43 @@ def run_checks():
     print("\nALL CHECKS PASSED")
 
 
-def check_rejects_untrusted_server():
-    """Start a fake server with a self-signed certificate (not signed by our
-    CA). The client-side TLS settings must refuse to connect to it."""
+def check_client_rejects(cert, key, label, port):
+    """Start a second server with the given certificate; the client-side TLS
+    settings (trust only certs/ca.crt) must refuse to connect to it."""
     certs = os.path.join(ROOT, "certs")
-    if not os.path.isfile(os.path.join(certs, "rogue.crt")):
-        subprocess.run([sys.executable, os.path.join(certs, "gen_rogue_cert.py")],
-                       check=True, cwd=certs)
-    rogue_port = PORT + 1
     proc = subprocess.Popen(
-        [sys.executable, "server.py", HOST, str(rogue_port),
-         "--cert", os.path.join(certs, "rogue.crt"), "--key", os.path.join(certs, "rogue.key")],
+        [sys.executable, "server.py", HOST, str(port),
+         "--cert", os.path.join(certs, cert), "--key", os.path.join(certs, key)],
         cwd=os.path.join(ROOT, "server"), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
-        wait_for_server(port=rogue_port)
-        s = socket.create_connection((HOST, rogue_port))
+        wait_for_server(port=port)
+        s = socket.create_connection((HOST, port))
         try:
             ssl.create_default_context(cafile=CA_FILE).wrap_socket(s, server_hostname=HOST)
-            rejected = False
-        except ssl.SSLCertVerificationError:
-            rejected = True
+            reason = None
+        except ssl.SSLCertVerificationError as e:
+            reason = e.verify_message
         finally:
             s.close()
-        check("untrusted (self-signed) server certificate rejected", rejected)
+        check(f"{label} rejected by the client ({reason})", reason is not None)
     finally:
         proc.terminate()
         proc.wait(timeout=5)
 
 
+def check_rejects_untrusted_server():
+    certs = os.path.join(ROOT, "certs")
+    if not os.path.isfile(os.path.join(certs, "rogue.crt")):
+        subprocess.run([sys.executable, os.path.join(certs, "gen_rogue_cert.py")],
+                       check=True, cwd=certs)
+    # self-signed: not signed by our CA (untrusted)
+    check_client_rejects("rogue.crt", "rogue.key", "untrusted (self-signed) certificate", PORT + 1)
+    # signed by our CA, right names, but only valid in January 2025 (invalid)
+    check_client_rejects("expired.crt", "server.key", "expired certificate", PORT + 2)
+
+
 def main():
-    if not os.path.isfile(CA_FILE):
+    if not (os.path.isfile(CA_FILE) and os.path.isfile(os.path.join(ROOT, "certs", "expired.crt"))):
         subprocess.run([sys.executable, os.path.join(ROOT, "certs", "gen_certs.py")], check=True)
 
     server_dir = os.path.join(ROOT, "server")

@@ -11,6 +11,7 @@ itself.
 Run:  python client.py [host] [port]
 """
 
+import getpass
 import os
 import queue
 import socket
@@ -127,9 +128,17 @@ def expect(*expected_commands):
     return fields
 
 
+def read_password(prompt):
+    """Hide the password while it is typed. Scripts that pipe input in (tests)
+    have no terminal, so they fall back to a normal input()."""
+    if sys.stdin.isatty():
+        return getpass.getpass(prompt).strip()
+    return input(prompt).strip()
+
+
 def do_login(sock):
     username = input("Username: ").strip()
-    password = input("Password: ").strip()
+    password = read_password("Password: ")
     send_line(sock, "LOGIN", username, password)
     fields = expect("LOGIN_OK")
     if fields[0] == "LOGIN_OK":
@@ -142,7 +151,7 @@ def do_login(sock):
 
 def do_register(sock):
     username = input("New username: ").strip()
-    password = input("New password: ").strip()
+    password = read_password("New password: ")
     send_line(sock, "REGISTER", username, password)
     fields = expect("REGISTER_OK")
     if fields[0] == "REGISTER_OK":
