@@ -1,74 +1,356 @@
-# Multi-Client File Transfer
+# Secure Multi-Client File Transfer (Assignment 2)
 
-A TCP-based multi-client file transfer application built for a Computer
-Networks course. A multi-threaded server supports concurrent clients
-that can authenticate, message each other, and transfer files to and
-from the server or directly to another connected client.
+Roll number: 2024261
 
-## Features
+This is Assignment 1's multi-client TCP file transfer application with security
+added. Everything from A1 still works (login, LIST, ALLUSERS, FILES, MSG,
+BROADCAST, UPLOAD, DOWNLOAD, SEND, LOGOUT, many clients at once); it now runs
+over TLS and checks every file with SHA-256.
 
-- User authentication (login, auto-registered on first use)
-- Multi-threaded server — many simultaneous clients, one thread each
-- Private messaging and broadcast messaging
-- Upload and download files to/from server storage
-- Send a file directly to another online client, relayed through the server
-- List online users, list every registered user (online or offline), and list files available on the server
-- Custom text-based application-layer protocol over raw TCP sockets
-- Performance test scripts for round-trip time, broadcast latency, and concurrent-download throughput
+| A2 requirement | How it is done |
+|---|---|
+| 1. Authentication: no plaintext passwords; invalid attempts rejected | Passwords only travel inside TLS; the server stores salted PBKDF2-SHA256 hashes. New users must `REGISTER`; wrong password or unknown user gets `AUTH_FAILED`; 3 failures close the connection. |
+| 2. Certificates and secure communication | Our own CA and a server certificate made with **OpenSSL**. The client trusts only our CA, checks the server's certificate and name, and refuses untrusted servers. Each client connection has its own TLS session. |
+| 3. Secure messaging | MSG and BROADCAST travel inside each client's TLS session. |
+| 4. Secure file transfer (100 KB, 1 MB, 10 MB) | UPLOAD, DOWNLOAD and SEND all go over TLS. `experiments/test4_secure_transfer.py` runs all three sizes. |
+| 5. Message digests and file integrity | SHA-256 computed before sending, recomputed after receiving, compared; failures reported and the file is not kept. `demo/tamper_file.py` shows a failure. |
 
-## Technology
+## Requirements
 
-- Python
-- TCP Sockets
-- Threading
+- Python 3.9 or newer (developed and tested with Python 3.13). Standard library only, no `pip install`.
+- OpenSSL command-line tool, only to generate the certificates.
+  On Windows it comes with Git for Windows; `certs/gen_certs.py` finds it there too.
 
-## Running
+## Project structure
 
-Requires only the Python standard library (no `pip install` needed).
+```
+server/        server.py (TLS server, auth, integrity checks), protocol.py
+client/        client.py (interactive TLS client), protocol.py (same as server's)
+certs/         gen_certs.py, server_ext.cnf (CA + server certificate with OpenSSL)
+               gen_rogue_cert.py (untrusted certificate for the rejection demo)
+demo/          integrity_test.txt, tamper_file.py (integrity failure demo)
+experiments/   test1-3 from A1 (now over TLS), test4 secure transfer 100KB/1MB/10MB
+tests/         test_protocol.py (automated end-to-end checks)
+AI_PROMPTS.md  every prompt given to the AI and what it produced
+```
 
-**1. Start the server** (defaults to `0.0.0.0:5050`):
+Created when running (not part of the submission): `server/users.txt`,
+`server/storage/`, `server/digests/`, `client/downloads/`, `client/received/`,
+and the generated keys and certificates in `certs/`.
+
+## Running it
+
+Run all commands from the project folder.
+
+**1. Generate the certificates (once):**
+
+```
+python certs/gen_certs.py
+```
+
+This makes `ca.key`, `ca.crt`, `server.key`, `server.csr` and `server.crt` and ends
+with `server.crt: OK`. To run the server on another laptop on the same network, add
+that laptop's IP: `python certs/gen_certs.py 192.168.1.5`.
+
+**2. Start the server** (default `0.0.0.0:5050`):
 
 ```
 python server/server.py
 ```
 
-**2. Start one or more clients** (defaults to `127.0.0.1:5050`), each in
-its own terminal:
+**3. Start clients**, each in its own terminal (default `127.0.0.1:5050`):
 
 ```
 python client/client.py
+python client/client.py 192.168.1.5 5050      (server on another machine)
 ```
 
-Log in with any username/password — unknown usernames are auto-registered.
-Type `help` after logging in for the list of commands (`list`, `allusers`,
-`files`, `msg`, `broadcast`, `upload`, `download`, `send`, `logout`).
-`list` shows who's online right now; `allusers` shows every registered
-account (online or offline); `files` shows what's available to
-`download`. Run at least 5 clients at once to demo the
-concurrency requirement.
+The client prints the TLS version and who the certificate was issued to. Choose `r`
+to register a new account, then `l` to log in. Type `help` for the commands:
+`list`, `allusers`, `files`, `msg`, `broadcast`, `upload`, `download`, `send`, `logout`.
+Uploads and sends print the file's SHA-256; downloads and received files report whether
+the integrity check passed.
 
-**3. Run the automated protocol test** (starts its own server, no setup
-needed):
+**4. Automated tests** (start their own server; run them when no demo is going on,
+because they delete `users.txt`, `storage/` and `digests/`):
 
 ```
 python tests/test_protocol.py
 ```
 
-**4. Run the performance experiments** against a running server:
+**Upgrading from A1:** an A1 `server/users.txt` holds plaintext passwords and is not
+accepted by A2. Delete it and register the users again.
+
+## Protocol (A2 version)
+
+### Layers
 
 ```
-python experiments/test1_rtt.py 127.0.0.1 5050
-python experiments/test2_broadcast_latency.py 127.0.0.1 5050
-python experiments/test3_throughput.py 127.0.0.1 5050 1     # 1 MB
-python experiments/test3_throughput.py 127.0.0.1 5050 100   # 100 MB
-python experiments/test3_throughput.py 127.0.0.1 5050 1000  # 1 GB
+our application protocol   COMMAND|field|field\n  + raw file bytes
+TLS 1.2 / 1.3              encryption, server authentication, record integrity
+TCP                        reliable byte stream (port 5050)
 ```
 
-## Project Structure
+A client first opens a TCP connection, then does a TLS handshake. Only after the
+handshake succeeds is any application message sent, so every message below,
+including passwords, is encrypted.
+
+### Message format (unchanged from A1)
+
+- Control message: one line of UTF-8 text, fields separated by `|`, ending in `\n`.
+- File data: raw bytes sent right after a control line that states their exact size.
+  The receiver reads exactly that many bytes (length-prefix framing).
+- New in A2: file transfers carry the file's SHA-256 digest (64 hex characters).
+
+### Commands
+
+Changes from A1 are in **bold**.
+
+| Client sends | Server replies | Errors |
+|---|---|---|
+| **`REGISTER\|user\|password`** | **`REGISTER_OK\|user`** | **USER_EXISTS, BAD_USERNAME, BAD_PASSWORD**, BAD_ARGS, ALREADY_LOGGED_IN |
+| `LOGIN\|user\|password` | `LOGIN_OK\|user` | AUTH_FAILED (wrong password **or unknown user**), USER_ALREADY_ONLINE, BAD_ARGS, ALREADY_LOGGED_IN, **TOO_MANY_ATTEMPTS** (3rd failure, then disconnect) |
+| `LIST` | `USERS\|alice,bob` | |
+| `ALLUSERS` | `ALLUSERS\|alice:online,carol:offline` | |
+| `FILES` | `FILES\|a.txt,b.pdf` | |
+| `MSG\|to\|text` | `MSG_OK`; receiver gets `MSG\|from\|text` | USER_NOT_FOUND |
+| `BROADCAST\|text` | `BROADCAST_OK`; every other user gets `BROADCAST\|from\|text` | |
+| `UPLOAD\|name\|size\|`**`sha256`** | `READY`, client sends bytes, then `UPLOAD_OK\|name` | BAD_ARGS (incl. missing digest), **INTEGRITY_FAIL** |
+| `DOWNLOAD\|name` | `DOWNLOAD_OK\|name\|size\|`**`sha256`** + bytes | FILE_NOT_FOUND |
+| `SEND\|to\|name\|size\|`**`sha256`** | `READY`, bytes, `SEND_OK\|name`; receiver gets `SEND_INCOMING\|name\|from\|size\|`**`sha256`** + bytes | USER_NOT_FOUND, BAD_ARGS, **INTEGRITY_FAIL** |
+| `LOGOUT` | `LOGOUT_OK`, then the server closes the connection | |
+
+Any command other than REGISTER or LOGIN before logging in gets `ERROR|NOT_LOGGED_IN`;
+an unknown command gets `ERROR|UNKNOWN_COMMAND`; an unexpected server fault gets
+`ERROR|SERVER_ERROR` and the connection is closed. Every request gets exactly one reply.
+
+Usernames: 1-32 characters from letters, digits, `_`, `.`, `-` (`:` `,` `|` and spaces
+would break `users.txt` or the comma-separated LIST reply).
+
+### Sequence diagrams
+
+**Connect, register and log in**
 
 ```
-server/       TCP server: connection handling, threading, command dispatch
-client/       Interactive CLI client
-experiments/  Performance test scripts (RTT, broadcast latency, throughput)
-tests/        End-to-end protocol test suite
+Client                                        Server
+  |---- TCP SYN / SYN-ACK / ACK -------------->|   (done by the OS)
+  |---- TLS ClientHello ----------------------->|
+  |<--- ServerHello + server.crt ---------------|
+  |  client checks: signed by ca.crt? not expired? issued for this address?
+  |  (any check fails -> close, nothing else is sent)
+  |<--- key exchange done, session keys ------->|   everything below is encrypted
+  |---- REGISTER|alice|pw1 -------------------->|   hash = PBKDF2(pw1, random salt)
+  |<--- REGISTER_OK|alice ----------------------|   users.txt: alice:pbkdf2_sha256$...
+  |---- LOGIN|alice|pw1 ----------------------->|   recompute hash with stored salt, compare
+  |<--- LOGIN_OK|alice -------------------------|
 ```
+
+**Upload with integrity check**
+
+```
+Client                                        Server
+  | digest = SHA-256(file)   (before sending)  |
+  |---- UPLOAD|notes.pdf|102400|<digest> ----->|
+  |<--- READY ----------------------------------|
+  |---- 102400 raw bytes ---------------------->|   SHA-256(received) == digest ?
+  |<--- UPLOAD_OK|notes.pdf --------------------|   yes: save file, save digest in digests/
+  |<--- ERROR|INTEGRITY_FAIL -------------------|   no:  file not saved
+```
+
+**Download with integrity check**
+
+```
+Client                                        Server
+  |---- DOWNLOAD|notes.pdf -------------------->|   digest = the one saved at upload
+  |<--- DOWNLOAD_OK|notes.pdf|102400|<digest> --|
+  |<--- 102400 raw bytes -----------------------|
+  | SHA-256(received) == digest ?  yes: save to downloads/   no: report FAILED, don't save
+```
+
+**Send to another user (two checks)**
+
+```
+Alice                         Server                          Bob
+  | digest = SHA-256(file)      |                               |
+  |-- SEND|bob|f|size|digest -->|                               |
+  |<-- READY -------------------|                               |
+  |-- raw bytes --------------->| check 1: SHA-256 == digest?   |
+  |                             |   no: ERROR|INTEGRITY_FAIL to Alice, nothing forwarded
+  |                             |-- SEND_INCOMING|f|alice|size|digest -->|
+  |                             |-- raw bytes ---------------->| check 2: SHA-256 == digest?
+  |<-- SEND_OK|f ---------------|                               | no: report FAILED, don't save
+```
+
+## Security design
+
+- **Certificates (`certs/gen_certs.py`, OpenSSL).** We act as our own Certificate
+  Authority: `ca.key` signs `server.crt`. The server certificate lists the names it is
+  valid for (`localhost`, `127.0.0.1`, plus any IP given to the script) and can only be
+  used for TLS server authentication. The private keys never leave the machine and are
+  in `.gitignore`.
+- **TLS (Python `ssl`, built on OpenSSL).** Server: `make_tls_context()` loads
+  `server.crt`/`server.key`, minimum TLS 1.2; each accepted socket is wrapped in its own
+  thread (10 s handshake timeout), so each client gets an independent session with its
+  own keys. Client: trusts only `ca.crt`, requires a valid certificate and checks the
+  server name; on failure it exits before sending anything. In practice TLS 1.3 with
+  `TLS_AES_256_GCM_SHA384` is negotiated.
+- **Passwords.** Stored as `pbkdf2_sha256$200000$<16-byte salt>$<hash>`; compared with
+  `hmac.compare_digest`. Unknown users are checked against a dummy hash so a login takes
+  the same time whether or not the user exists.
+- **Integrity.** SHA-256 (`protocol.sha256_hex`) on every UPLOAD, DOWNLOAD and SEND, as
+  in the diagrams above. The server records each upload's verified digest in
+  `server/digests/`, so a file changed on the server's disk later is caught on download.
+- **Concurrency.** Several threads can write to one client's TLS socket (its own replies,
+  and MSG/BROADCAST/SEND_INCOMING from other clients). A write lock per socket keeps
+  every message, and every header + file pair, from being mixed with another.
+
+## Demos
+
+### 1. The client rejects an untrusted server
+
+```
+python certs/gen_rogue_cert.py
+python server/server.py --cert certs/rogue.crt --key certs/rogue.key
+python client/client.py
+```
+
+`rogue.crt` is self-signed: its names and dates are fine, but our CA did not sign it
+(what a fake server in a man-in-the-middle attack would have). The client prints
+`[!] Server certificate rejected: self-signed certificate. Not connecting to an untrusted server.`
+and never asks for the password; the fake server logs `tlsv1 alert unknown ca`.
+Restart the real server (without `--cert/--key`) afterwards.
+
+**Wrong address:** start the real server with `python server/server.py 0.0.0.0` and run
+`python client/client.py 127.0.0.2`. The certificate is not issued for 127.0.0.2, so the
+client prints `IP address mismatch, certificate is not valid for '127.0.0.2'`.
+
+### 2. Integrity failure on an intentionally modified file
+
+With the server running and a client logged in:
+
+1. client: `upload` -> `demo/integrity_test.txt` (prints the SHA-256, "Integrity check passed")
+2. another terminal: `python demo/tamper_file.py integrity_test.txt`
+   (flips one bit in `server/storage/integrity_test.txt`: "Integrity" -> "Hntegrity")
+3. client: `download` -> `integrity_test.txt` -> **"Integrity check FAILED"**, the expected and
+   received SHA-256 are printed and the file is not saved
+4. `python demo/tamper_file.py integrity_test.txt --restore`, then download again -> passes
+
+A corrupted upload or send is rejected by the server with `INTEGRITY_FAIL`
+(`tests/test_protocol.py` checks this by sending one changed byte with the original digest).
+
+### 3. Wireshark shows no unencrypted data
+
+1. Start Wireshark. For traffic on the same machine, capture on the loopback interface
+   (on Windows: "Adapter for loopback traffic capture", from Npcap's loopback support).
+2. Display filter: `tcp.port == 5050`. If the packets show only as TCP data, use
+   Analyze -> Decode As -> TCP port 5050 -> TLS.
+3. Register, log in, send a message, broadcast, upload/download/send a file.
+4. Wireshark shows the TLS handshake (Client Hello, Server Hello) and then only
+   "Application Data" records. Follow -> TCP Stream shows random-looking bytes, and
+   Edit -> Find Packet -> String finds neither the password, the message text nor the
+   file contents.
+
+For comparison, the same steps against the A1 code (`main` branch) show
+`LOGIN|alice|<password>` and the message and file text in plain sight.
+
+The same check was done during development with a packet capture on loopback:
+the A1 capture contained the password, a broadcast message and a file's contents in
+plaintext; the A2 capture of the same actions (58 packets) contained none of them, and
+its first bytes are `16 03 01`, a TLS handshake record.
+
+## Tests and experiments
+
+With the server running (`python server/server.py`), from another terminal:
+
+```
+python experiments/test1_rtt.py                      # RTT of LIST, 100 requests
+python experiments/test2_broadcast_latency.py        # broadcast to 5 clients
+python experiments/test3_throughput.py 127.0.0.1 5050 1      # 10 clients x 1 MB
+python experiments/test3_throughput.py 127.0.0.1 5050 100    # 10 clients x 100 MB
+python experiments/test4_secure_transfer.py          # 100 KB / 1 MB / 10 MB upload, download, send
+```
+
+All of them connect over TLS (helper: `experiments/secure_conn.py`, which registers the
+test accounts if needed). Test 3 and test 4 check the SHA-256 of every file received.
+
+Results on the development machine (Linux, loopback, Python 3.13):
+
+| Test | Result |
+|---|---|
+| 1. RTT (LIST) | avg 0.12 ms (A1 without TLS: 0.05 ms) |
+| 2. Broadcast to 5 clients | avg 0.87 ms |
+| 3. 10 clients x 100 MB | 156 MB/s, 10/10 downloads verified |
+| 4. 100 KB upload / download / send | 1.6 / 0.9 / 1.5 ms, all PASS |
+| 4. 1 MB upload / download / send | 7.6 / 4.7 / 10.7 ms, all PASS |
+| 4. 10 MB upload / download / send | 65 / 38 / 129 ms, all PASS |
+
+TLS adds the cost of encrypting and authenticating every record (RTT 0.05 -> 0.12 ms).
+"Send" is slowest because the file crosses two TLS connections and is checked twice.
+
+`tests/test_protocol.py` starts its own server and runs 47 checks: the untrusted-certificate
+rejection, registration and login rules, no plaintext in `users.txt`, every A1 command,
+and the integrity checks for upload, download (including a file modified on the server)
+and send (including a corrupted file that must not be forwarded).
+
+## Problems found and fixed during A2
+
+- **Strict certificate checks (Python 3.13+).** The first CA certificate was rejected
+  because it did not state `CA:TRUE` / `keyCertSign`. Fixed in `gen_certs.py`.
+- **Two replies for one request.** On the 3rd failed login the server sent
+  `AUTH_FAILED` and `TOO_MANY_ATTEMPTS`; the client read the first, tried again on a
+  closed connection and crashed. Fixed: exactly one reply per request.
+- **40 ms delay on the first message.** With TLS, the first small message after each
+  login waited ~42 ms (broadcast latency went from 0.9 ms to 31 ms). Cause: Nagle's
+  algorithm with delayed ACKs, triggered by the small TLS records sent right after the
+  handshake. Fixed with `TCP_NODELAY` on the server's sockets.
+- **From A1:** concurrent writes to one client's socket could mix bytes (1 of 4 files
+  intact in a stress test); fixed with a write lock per socket. LOGOUT_OK was sent before
+  the user was marked offline; now the user goes offline first.
+
+## Limitations
+
+- Files are read into memory whole; very large files (GBs) need a lot of RAM.
+- The server's own copy of the digests could be changed by someone who controls the
+  server; signing digests with the uploader's private key would cover that.
+- Only the server is authenticated by certificate; clients authenticate with passwords
+  (client certificates, i.e. mutual TLS, would be the next step).
+- An already-expired certificate is not part of the demo: OpenSSL 3.0's `req -x509`
+  cannot create one directly.
+
+## Use of AI
+
+**Tool:** Claude (Anthropic), in the Claude app. Also used: OpenSSL (certificates),
+Python standard library only.
+
+**How it was used.** A2 was built in small steps, one short prompt per step, never the
+whole program from one prompt. For each step the AI proposed and wrote the code change
+as several small git commits (branch `a2` of my A1 repository), ran the tests, and
+explained the change; I checked the result before giving the next prompt. Design
+decisions were mine (OpenSSL instead of PuTTYgen, a REGISTER command instead of A1's
+auto-registration, editing the stored file for the tamper demo).
+
+**My prompts** (word for word; full details of each step's output and checks are in
+[`AI_PROMPTS.md`](AI_PROMPTS.md)):
+
+| Step | Prompt / decision | Result |
+|---|---|---|
+| 0 | Attached the A2 PDF: "okay so i got a assignment 2 on continuation of this with same policy ... You may use AI as you did last time. But you must give credit to it and all the details, like your prompt, etc. ..."; then "see we have to do it in parts not in single prompt keep steps as small as possible prompts too do not make any assumptions" | 12-step plan, no code |
+| 1 | "have you followed the assignment pdf if so then continue"; "no keep pushing with maximum commits for it to be as detailed as i want" | A2 branch from A1; write lock per socket; logout ordering fix |
+| 2 | "is the open ssl allowed"; "okay then continue" | `certs/gen_certs.py` (CA + server certificate with OpenSSL) |
+| 3 | "ok next" | TLS on the server |
+| 4 | "next" | TLS and certificate check in the client |
+| 5 | "next" | rogue certificate + rejection demo and test |
+| 6 | Chose "Add a REGISTER command" | salted password hashes, REGISTER, login rules, 3-attempt limit |
+| 7 | "next" | SHA-256 integrity on upload |
+| 8 | "next" | SHA-256 integrity on download and send |
+| 9 | Chose "Edit the stored file" for the demo | `demo/tamper_file.py` |
+| 10 | "next" | experiments over TLS, test 4 (100 KB / 1 MB / 10 MB), TCP_NODELAY fix |
+| 11 | "next" | this README |
+
+Questions I asked the AI to understand the material (no code produced): "what is tls",
+the CN syllabus slides (to check which security topics my course covers), and the
+approach and deadline planning.
+
+**What I verified myself:** every step was tested before moving on (automated tests,
+manual runs of server and clients, the experiments, the tamper and rejection demos,
+and a packet capture comparing A1 and A2). I can explain each part without the AI.
