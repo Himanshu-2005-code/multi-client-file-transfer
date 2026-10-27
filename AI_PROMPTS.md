@@ -78,3 +78,21 @@ address that is not in the certificate is rejected.
   sending LIST commands on the same encrypted connection. 4/4 files intact in 5 runs,
   no server errors. The server log shows every connection on TLS 1.3
   (`TLS_AES_256_GCM_SHA384`).
+
+---
+
+## Step 4: TLS and certificate check in the client
+
+**My prompt:** "next"
+
+**AI output:**
+- `client: add the TLS settings that trust only our CA` (`make_tls_context()`: only `certs/ca.crt`, certificate required, hostname check, TLS 1.2 minimum)
+- `client: connect over TLS and reject untrusted servers` (prints TLS version, cipher, and who the certificate was issued to and by; exits on a bad certificate)
+- `client: print a clear message when the server cannot be reached`
+
+**What I checked:**
+- Login, LIST, MSG, BROADCAST, upload, download and send all work through the real client over TLS 1.3.
+  A 1 MB file uploaded, sent to another user and downloaded arrives byte-for-byte identical (`cmp`).
+- Connecting to the server at `127.0.0.2` (an address not in the certificate) is rejected:
+  `[!] Server certificate rejected: IP address mismatch, certificate is not valid for '127.0.0.2'`.
+- `python tests/test_protocol.py` still passes.
