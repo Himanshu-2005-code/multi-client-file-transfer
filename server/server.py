@@ -331,7 +331,7 @@ def handle_download(sock, fields):
 
 def handle_send(sock, sender, fields):
     # SEND|target|filename|size|sha256
-    if len(fields) not in (4, 5):
+    if len(fields) != 5:
         send_line(sock, "ERROR", "BAD_ARGS")
         return
     target = fields[1]
@@ -356,23 +356,20 @@ def handle_send(sock, sender, fields):
 
     # Hop 1 (sender -> server): check before forwarding, so a corrupted
     # file is never passed on. The receiver checks hop 2 itself.
-    digest_fields = []
-    if len(fields) == 5:
-        sent_digest = fields[4].lower()
-        got_digest = sha256_hex(data)
-        if got_digest != sent_digest:
-            print(f"[integrity] SEND '{filename}' {sender}->{target} FAILED: "
-                  f"sent {sent_digest[:16]}..., received {got_digest[:16]}...")
-            send_line(sock, "ERROR", "INTEGRITY_FAIL")
-            return
-        print(f"[integrity] SEND '{filename}' {sender}->{target} OK ({got_digest[:16]}...)")
-        digest_fields = [sent_digest]
+    sent_digest = fields[4].lower()
+    got_digest = sha256_hex(data)
+    if got_digest != sent_digest:
+        print(f"[integrity] SEND '{filename}' {sender}->{target} FAILED: "
+              f"sent {sent_digest[:16]}..., received {got_digest[:16]}...")
+        send_line(sock, "ERROR", "INTEGRITY_FAIL")
+        return
+    print(f"[integrity] SEND '{filename}' {sender}->{target} OK ({got_digest[:16]}...)")
 
     try:
         # Header and payload must go out back-to-back with nothing in between.
         # The sender's digest is forwarded so the receiver can verify too.
         with write_lock(target_sock):
-            send_line(target_sock, "SEND_INCOMING", filename, sender, filesize, *digest_fields)
+            send_line(target_sock, "SEND_INCOMING", filename, sender, filesize, sent_digest)
             send_exact(target_sock, data)
     except OSError:
         send_line(sock, "ERROR", "USER_NOT_FOUND")

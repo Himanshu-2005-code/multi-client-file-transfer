@@ -248,6 +248,10 @@ def run_checks():
     bob.settimeout(None)
     check("corrupted file not forwarded to bob", nothing_forwarded)
 
+    send_line(alice, "SEND", "bob", "nodigest.bin", 3)
+    r = recv_line(alice)
+    check("send without a digest rejected", r == ["ERROR", "BAD_ARGS"])
+
     # send to offline user
     send_line(alice, "SEND", "nobody", "x.txt", 3, sha256_hex(b"abc"))
     r = recv_line(alice)
