@@ -18,7 +18,7 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "client"))
-from protocol import send_line, recv_line, recv_exact, send_exact
+from protocol import send_line, recv_line, recv_exact, send_exact, sha256_hex
 
 HOST, PORT = "127.0.0.1", 5098
 CA_FILE = os.path.join(ROOT, "certs", "ca.crt")
@@ -164,12 +164,22 @@ def run_checks():
 
     # --- upload / download ---
     payload = b"hello world file contents" * 100
-    send_line(alice, "UPLOAD", "test.txt", len(payload))
+    send_line(alice, "UPLOAD", "test.txt", len(payload), sha256_hex(payload))
     r = recv_line(alice)
     check("upload ready", r[0] == "READY")
     send_exact(alice, payload)
     r = recv_line(alice)
-    check("upload ok", r[0] == "UPLOAD_OK")
+    check("upload ok (digest matches)", r[0] == "UPLOAD_OK")
+
+    # digest of the original, but one byte changed on the way
+    corrupted = b"X" + payload[1:]
+    send_line(alice, "UPLOAD", "corrupt.txt", len(corrupted), sha256_hex(payload))
+    recv_line(alice)                                   # READY
+    send_exact(alice, corrupted)
+    r = recv_line(alice)
+    check("upload with wrong digest rejected", r == ["ERROR", "INTEGRITY_FAIL"])
+    check("corrupted upload not stored",
+          not os.path.exists(os.path.join(ROOT, "server", "storage", "corrupt.txt")))
 
     send_line(bob, "DOWNLOAD", "test.txt")
     r = recv_line(bob)
