@@ -1,0 +1,8 @@
+Integrity test file for CN Assignment 2.
+
+The client computes the SHA-256 digest of this file before uploading it,
+and the server records it. demo/tamper_file.py then changes this text
+inside server/storage/. Downloading it afterwards must FAIL the integrity
+check, because the downloaded bytes no longer match the recorded digest.
+
+Account balance: 1000
