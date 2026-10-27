@@ -143,3 +143,25 @@ rejected, invalid name rejected, no plaintext in users.txt, wrong password rejec
 rejected, 3rd failed login disconnects. Through the real client: register -> login works; three
 wrong passwords end with "Too many failed logins". A known and an unknown username both take
 about 140-150 ms to reject.
+
+---
+
+## Step 7: file integrity on upload (message digest)
+
+**My prompt:** "next"
+
+**AI output:**
+- `protocol: add a SHA-256 digest helper` (`sha256_hex()` in both copies of `protocol.py`)
+- `server: verify the SHA-256 digest of uploaded files`
+- `client: send a SHA-256 digest with every upload` (digest computed before sending and shown; result reported)
+- `tests: upload with a digest and check that a corrupted upload is rejected`
+- `server: require a digest on every upload`
+- `server: record each stored file's verified SHA-256` (`server/digests/<file>.sha256`, used by downloads in step 8)
+- `tests: also remove server/digests when the test finishes` (fix: cleanup missed this folder)
+
+Protocol change: `UPLOAD|filename|size|sha256` -> `READY` -> bytes -> `UPLOAD_OK|filename`
+or `ERROR|INTEGRITY_FAIL` (file not stored). An UPLOAD without a digest gets `ERROR|BAD_ARGS`.
+
+**What I checked:** the digest the client prints for a 100 KB file equals the output of the
+standard `sha256sum` tool; the server logs `[integrity] UPLOAD ... OK`; a file with one changed
+byte sent with the original's digest is rejected with INTEGRITY_FAIL and not stored. All tests pass.
