@@ -27,3 +27,6 @@ certs/*.srl
 certs/server_ext_generated.cnf
 
 server/digests/
+
+# originals saved by demo/tamper_file.py
+demo/backup/
