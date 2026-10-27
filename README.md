@@ -316,3 +316,41 @@ and send (including a corrupted file that must not be forwarded).
   (client certificates, i.e. mutual TLS, would be the next step).
 - An already-expired certificate is not part of the demo: OpenSSL 3.0's `req -x509`
   cannot create one directly.
+
+## Use of AI
+
+**Tool:** Claude (Anthropic), in the Claude app. Also used: OpenSSL (certificates),
+Python standard library only.
+
+**How it was used.** A2 was built in small steps, one short prompt per step, never the
+whole program from one prompt. For each step the AI proposed and wrote the code change
+as several small git commits (branch `a2` of my A1 repository), ran the tests, and
+explained the change; I checked the result before giving the next prompt. Design
+decisions were mine (OpenSSL instead of PuTTYgen, a REGISTER command instead of A1's
+auto-registration, editing the stored file for the tamper demo).
+
+**My prompts** (word for word; full details of each step's output and checks are in
+[`AI_PROMPTS.md`](AI_PROMPTS.md)):
+
+| Step | Prompt / decision | Result |
+|---|---|---|
+| 0 | Attached the A2 PDF: "okay so i got a assignment 2 on continuation of this with same policy ... You may use AI as you did last time. But you must give credit to it and all the details, like your prompt, etc. ..."; then "see we have to do it in parts not in single prompt keep steps as small as possible prompts too do not make any assumptions" | 12-step plan, no code |
+| 1 | "have you followed the assignment pdf if so then continue"; "no keep pushing with maximum commits for it to be as detailed as i want" | A2 branch from A1; write lock per socket; logout ordering fix |
+| 2 | "is the open ssl allowed"; "okay then continue" | `certs/gen_certs.py` (CA + server certificate with OpenSSL) |
+| 3 | "ok next" | TLS on the server |
+| 4 | "next" | TLS and certificate check in the client |
+| 5 | "next" | rogue certificate + rejection demo and test |
+| 6 | Chose "Add a REGISTER command" | salted password hashes, REGISTER, login rules, 3-attempt limit |
+| 7 | "next" | SHA-256 integrity on upload |
+| 8 | "next" | SHA-256 integrity on download and send |
+| 9 | Chose "Edit the stored file" for the demo | `demo/tamper_file.py` |
+| 10 | "next" | experiments over TLS, test 4 (100 KB / 1 MB / 10 MB), TCP_NODELAY fix |
+| 11 | "next" | this README |
+
+Questions I asked the AI to understand the material (no code produced): "what is tls",
+the CN syllabus slides (to check which security topics my course covers), and the
+approach and deadline planning.
+
+**What I verified myself:** every step was tested before moving on (automated tests,
+manual runs of server and clients, the experiments, the tamper and rejection demos,
+and a packet capture comparing A1 and A2). I can explain each part without the AI.
