@@ -107,9 +107,10 @@ def load_users():
     return users
 
 
-def save_user(username, password):
+def save_user(username, password_hash):
+    """Append one 'username:hash' line. The plaintext password is never written."""
     with open(USERS_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{username}:{password}\n")
+        f.write(f"{username}:{password_hash}\n")
 
 
 users_lock = threading.Lock()
@@ -121,12 +122,20 @@ def check_or_register(username, password):
     auto-registered with the given password (per assignment scope: plain
     unencrypted username/password, no separate signup flow).
     """
+    # The slow hashing runs outside the lock so one login does not hold up
+    # every other client's login.
     with users_lock:
-        users = load_users()
-        if username in users:
-            return users[username] == password
-        save_user(username, password)
-        return True
+        stored = load_users().get(username)
+    if stored is not None:
+        return verify_password(password, stored)
+
+    new_hash = hash_password(password)
+    with users_lock:
+        stored = load_users().get(username)   # someone may have registered meanwhile
+        if stored is None:
+            save_user(username, new_hash)
+            return True
+    return verify_password(password, stored)
 
 
 def handle_login(sock, fields):
