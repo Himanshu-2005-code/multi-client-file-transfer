@@ -192,3 +192,19 @@ Protocol changes:
 **What I checked:** upload then download of a 100 KB file: same digest at both ends, identical
 file. alice sends bob a 1 MB file: same digest at alice, the server and bob; identical file.
 All protocol tests pass (5 runs), including a file modified on the server's disk and a corrupted SEND.
+
+---
+
+## Step 9: tamper demo (intentionally modified file)
+
+**My input:** chose **"Edit the stored file"** when the AI asked how to demonstrate the integrity failure.
+
+**AI output:**
+- `demo: add a small text file for the integrity demo` (`demo/integrity_test.txt`)
+- `demo: add a script that modifies a stored file on purpose` (`demo/tamper_file.py`, with `--restore`)
+
+**What I checked (demo run):**
+1. alice uploads `demo/integrity_test.txt` -> integrity check passed, SHA-256 `4d37e124...`
+2. `python demo/tamper_file.py integrity_test.txt` -> first byte `I` becomes `H`, SHA-256 becomes `0b1c34cb...`
+3. download -> "Integrity check FAILED", expected `4d37e124...`, received `0b1c34cb...`, file not saved
+4. `--restore` then download -> integrity check passed
