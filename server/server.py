@@ -117,25 +117,21 @@ def save_user(username, password_hash):
 users_lock = threading.Lock()
 
 
-def check_or_register(username, password):
+# Used for unknown usernames so that a login attempt takes the same time
+# whether or not the user exists (no username guessing by timing).
+_DUMMY_HASH = hash_password("dummy password")
+
+
+def check_login(username, password):
     """
-    Returns True if the credentials are valid. Unknown usernames are
-    auto-registered with the given password (per assignment scope: plain
-    unencrypted username/password, no separate signup flow).
+    True only if the user is registered AND the password matches.
+    Unknown users are rejected (accounts are created with REGISTER only).
     """
-    # The slow hashing runs outside the lock so one login does not hold up
-    # every other client's login.
     with users_lock:
         stored = load_users().get(username)
-    if stored is not None:
-        return verify_password(password, stored)
-
-    new_hash = hash_password(password)
-    with users_lock:
-        stored = load_users().get(username)   # someone may have registered meanwhile
-        if stored is None:
-            save_user(username, new_hash)
-            return True
+    if stored is None:
+        verify_password(password, _DUMMY_HASH)   # same work as a real check
+        return False
     return verify_password(password, stored)
 
 
@@ -184,7 +180,7 @@ def handle_login(sock, fields):
         send_line(sock, "ERROR", "USER_ALREADY_ONLINE")
         return None
 
-    if not check_or_register(username, password):
+    if not check_login(username, password):
         send_line(sock, "ERROR", "AUTH_FAILED")
         return None
 

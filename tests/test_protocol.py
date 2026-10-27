@@ -103,6 +103,12 @@ def run_checks():
     check("wrong password rejected", r[0] == "ERROR" and r[1] == "AUTH_FAILED")
     wrongpw.close()
 
+    unknown = connect()
+    send_line(unknown, "LOGIN", "mallory", "pw1")
+    r = recv_line(unknown)
+    check("login as an unregistered user rejected", r == ["ERROR", "AUTH_FAILED"])
+    unknown.close()
+
     alice = connect()
     send_line(alice, "LOGIN", "alice", "pw1")
     r = recv_line(alice)
