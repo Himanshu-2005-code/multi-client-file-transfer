@@ -274,19 +274,29 @@ python experiments/test4_secure_transfer.py          # 100 KB / 1 MB / 10 MB upl
 All of them connect over TLS (helper: `experiments/secure_conn.py`, which registers the
 test accounts if needed). Test 3 and test 4 check the SHA-256 of every file received.
 
-Results on the development machine (Linux, loopback, Python 3.13):
+Results on my laptop (Linux VM on the laptop, 2 cores, Python 3.10, loopback).
+A1 is the same machine without TLS or digests:
 
-| Test | Result |
-|---|---|
-| 1. RTT (LIST) | avg 0.12 ms (A1 without TLS: 0.05 ms) |
-| 2. Broadcast to 5 clients | avg 0.87 ms |
-| 3. 10 clients x 100 MB | 156 MB/s, 10/10 downloads verified |
-| 4. 100 KB upload / download / send | 1.6 / 0.9 / 1.5 ms, all PASS |
-| 4. 1 MB upload / download / send | 7.6 / 4.7 / 10.7 ms, all PASS |
-| 4. 10 MB upload / download / send | 65 / 38 / 129 ms, all PASS |
+| Test | A1 (no security) | A2 (TLS + SHA-256) |
+|---|---|---|
+| 1. RTT of LIST, median of 3 runs | 0.049 ms | 0.065 ms |
+| 2. Broadcast to 5 clients, avg of 3 runs | 0.52 ms | 0.49 ms |
+| 3. 10 clients x 1 MB | 196 MB/s | 355 MB/s |
+| 3. 10 clients x 100 MB | 641 MB/s | 342 MB/s, 10/10 verified |
 
-TLS adds the cost of encrypting and authenticating every record (RTT 0.05 -> 0.12 ms).
-"Send" is slowest because the file crosses two TLS connections and is checked twice.
+Test 4 (A2 only), every transfer PASSES its SHA-256 check:
+
+| Size | Upload | Download | Send (two hops) |
+|---|---|---|---|
+| 100 KB | 1.4 ms | 0.6 ms | 0.9 ms |
+| 1 MB | 3.3 ms | 4.1 ms | 6.5 ms |
+| 10 MB | 23.7 ms | 17.5 ms | 31.9 ms |
+
+TLS adds a little to every request (RTT +0.016 ms) and makes no measurable difference to
+small broadcasts, but it roughly halves bulk throughput: every byte is encrypted and
+authenticated (AES-256-GCM) on both ends and hashed (SHA-256) on both ends. The 1 MB
+throughput run is too short (~0.03-0.05 s) to compare reliably. "Send" is slowest because
+the file crosses two TLS connections and is checked twice.
 
 `tests/test_protocol.py` starts its own server and runs 47 checks: the untrusted-certificate
 rejection, registration and login rules, no plaintext in `users.txt`, every A1 command,
@@ -311,6 +321,10 @@ and send (including a corrupted file that must not be forwarded).
   client's reader thread processed them while the main thread wrote on the same TLS
   connection, and the write was lost. Fixed by sending no session tickets
   (`ctx.num_tickets = 0`; we do not use session resumption): 20 of 20 starts work.
+- **40 ms stall on uploads (client side).** On my laptop a 1 MB upload took ~43 ms every
+  time while a 10 MB upload took ~22 ms and downloads only ~2 ms: the same Nagle /
+  delayed-ACK effect on the client's writes. Fixed with `TCP_NODELAY` on the client socket
+  too (1 MB upload now ~3 ms).
 - **From A1:** concurrent writes to one client's socket could mix bytes (1 of 4 files
   intact in a stress test); fixed with a write lock per socket. LOGOUT_OK was sent before
   the user was marked offline; now the user goes offline first.
@@ -355,6 +369,7 @@ auto-registration, editing the stored file for the tamper demo).
 | 10 | "next" | experiments over TLS, test 4 (100 KB / 1 MB / 10 MB), TCP_NODELAY fix |
 | 11 | "next" | this README |
 | 12 | Chose "Include them" (certificates in the zip) | `2024261_A2.zip` |
+| 13 | "next"; chose "Full technical report"; "you can run it on my laptop" | experiments run on my laptop, client TCP_NODELAY fix, `2024261_A2.pdf` |
 
 Questions I asked the AI to understand the material (no code produced): "what is tls",
 the CN syllabus slides (to check which security topics my course covers), and the
