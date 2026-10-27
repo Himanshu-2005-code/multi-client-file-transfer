@@ -28,6 +28,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 USERS_FILE = os.path.join(BASE_DIR, "users.txt")
 STORAGE_DIR = os.path.join(BASE_DIR, "storage")
 os.makedirs(STORAGE_DIR, exist_ok=True)
+# SHA-256 of each stored file, recorded when its upload passed the integrity
+# check: digests/<filename>.sha256. Kept apart from storage/ so FILES only
+# lists real files.
+DIGEST_DIR = os.path.join(BASE_DIR, "digests")
+os.makedirs(DIGEST_DIR, exist_ok=True)
 
 # Server certificate and private key, made by certs/gen_certs.py (OpenSSL).
 CERTS_DIR = os.path.join(BASE_DIR, "..", "certs")
@@ -250,6 +255,21 @@ def safe_filename(name):
     return os.path.basename(name.replace("\\", "/"))
 
 
+def save_digest(filename, digest):
+    os.makedirs(DIGEST_DIR, exist_ok=True)
+    with open(os.path.join(DIGEST_DIR, filename + ".sha256"), "w", encoding="utf-8") as f:
+        f.write(digest + "\n")
+
+
+def load_digest(filename):
+    """The digest recorded at upload time, or None if there is none."""
+    try:
+        with open(os.path.join(DIGEST_DIR, filename + ".sha256"), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
 def handle_upload(sock, fields):
     # UPLOAD|filename|size|sha256   (the client computed the digest before sending)
     if len(fields) != 4:
@@ -279,6 +299,7 @@ def handle_upload(sock, fields):
     path = os.path.join(STORAGE_DIR, filename)
     with open(path, "wb") as f:
         f.write(data)
+    save_digest(filename, got_digest)
 
     send_line(sock, "UPLOAD_OK", filename)
 

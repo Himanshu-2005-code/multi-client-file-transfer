@@ -25,3 +25,5 @@ certs/*.crt
 certs/*.csr
 certs/*.srl
 certs/server_ext_generated.cnf
+
+server/digests/

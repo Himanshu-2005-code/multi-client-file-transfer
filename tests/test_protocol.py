@@ -170,6 +170,8 @@ def run_checks():
     send_exact(alice, payload)
     r = recv_line(alice)
     check("upload ok (digest matches)", r[0] == "UPLOAD_OK")
+    with open(os.path.join(ROOT, "server", "digests", "test.txt.sha256")) as f:
+        check("server recorded the verified digest", f.read().strip() == sha256_hex(payload))
 
     # digest of the original, but one byte changed on the way
     corrupted = b"X" + payload[1:]
@@ -266,12 +268,15 @@ def main():
     server_dir = os.path.join(ROOT, "server")
     users_file = os.path.join(server_dir, "users.txt")
     storage_dir = os.path.join(server_dir, "storage")
+    digest_dir = os.path.join(server_dir, "digests")
 
     # start from a clean slate so re-runs are deterministic
     if os.path.exists(users_file):
         os.remove(users_file)
     if os.path.exists(storage_dir):
         shutil.rmtree(storage_dir)
+    if os.path.exists(digest_dir):
+        shutil.rmtree(digest_dir)
 
     proc = subprocess.Popen(
         [sys.executable, "server.py", HOST, str(PORT)],
