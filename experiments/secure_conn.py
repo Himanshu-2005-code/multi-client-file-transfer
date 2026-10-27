@@ -20,6 +20,7 @@ CA_FILE = os.path.join(ROOT, "certs", "ca.crt")
 
 def connect_tls(host, port):
     raw = socket.create_connection((host, port))
+    raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)   # same as the real client
     ctx = ssl.create_default_context(cafile=CA_FILE)
     return ctx.wrap_socket(raw, server_hostname=host)
 
