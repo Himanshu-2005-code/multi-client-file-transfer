@@ -251,3 +251,18 @@ running the same actions against A1 and A2. A1: the password, a broadcast messag
 file's contents were readable in the capture. A2: 58 packets, none of them readable; the
 first bytes `16 03 01` are a TLS handshake record. Every command and error code in the
 README's table was taken from the server code.
+
+---
+
+## Step 12: package the submission
+
+**My input:** chose **"Include them"** when the AI asked whether the zip should contain
+ready-made certificates and keys.
+
+**AI output:**
+- `readme: say that the submission zip includes the certificates`
+- `2024261_A2.zip`, built from the `a2` branch with freshly generated certificates
+  (CA, server, and the rogue one for the demo), without runtime folders.
+
+**What I checked:** unzipped into an empty folder and ran the tests and a client/server
+session from there, without running OpenSSL.
