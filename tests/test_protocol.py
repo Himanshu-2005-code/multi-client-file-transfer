@@ -39,13 +39,13 @@ def check(label, cond):
         raise SystemExit(1)
 
 
-def wait_for_server(timeout=5.0):
+def wait_for_server(timeout=5.0, port=PORT):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(0.2)
-            s.connect((HOST, PORT))
+            s.connect((HOST, port))
             s.close()
             return
         except OSError:
@@ -179,6 +179,34 @@ def run_checks():
     print("\nALL CHECKS PASSED")
 
 
+def check_rejects_untrusted_server():
+    """Start a fake server with a self-signed certificate (not signed by our
+    CA). The client-side TLS settings must refuse to connect to it."""
+    certs = os.path.join(ROOT, "certs")
+    if not os.path.isfile(os.path.join(certs, "rogue.crt")):
+        subprocess.run([sys.executable, os.path.join(certs, "gen_rogue_cert.py")],
+                       check=True, cwd=certs)
+    rogue_port = PORT + 1
+    proc = subprocess.Popen(
+        [sys.executable, "server.py", HOST, str(rogue_port),
+         "--cert", os.path.join(certs, "rogue.crt"), "--key", os.path.join(certs, "rogue.key")],
+        cwd=os.path.join(ROOT, "server"), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        wait_for_server(port=rogue_port)
+        s = socket.create_connection((HOST, rogue_port))
+        try:
+            ssl.create_default_context(cafile=CA_FILE).wrap_socket(s, server_hostname=HOST)
+            rejected = False
+        except ssl.SSLCertVerificationError:
+            rejected = True
+        finally:
+            s.close()
+        check("untrusted (self-signed) server certificate rejected", rejected)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def main():
     if not os.path.isfile(CA_FILE):
         subprocess.run([sys.executable, os.path.join(ROOT, "certs", "gen_certs.py")], check=True)
@@ -201,6 +229,7 @@ def main():
     )
     try:
         wait_for_server()
+        check_rejects_untrusted_server()
         run_checks()
     finally:
         proc.terminate()
