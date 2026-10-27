@@ -232,3 +232,22 @@ the server's sockets. First message ~0.3 ms, experiment 2 back to ~0.9 ms, throu
 **What I checked (loopback, after the fix):** test 1 RTT avg ~0.12 ms; test 2 avg ~0.87 ms;
 test 3 100 MB x 10 clients ~156 MB/s with 10/10 downloads verified; test 4 all nine transfers
 (3 sizes x upload/download/send) PASS the SHA-256 check. Protocol tests pass.
+
+---
+
+## Step 11: README
+
+**My prompt:** "next"
+
+**AI output:** README rewritten for A2 in five commits:
+- `readme: rewrite for A2: features, requirements and how to run`
+- `readme: document the A2 protocol and security design` (command table, sequence diagrams)
+- `readme: add the demos (bad certificate, integrity failure, Wireshark)`
+- `readme: add tests, experiment results, problems fixed and limitations`
+- `readme: add the AI usage section`
+
+**What I checked:** a packet capture on loopback (Python scapy, standing in for Wireshark),
+running the same actions against A1 and A2. A1: the password, a broadcast message and a
+file's contents were readable in the capture. A2: 58 packets, none of them readable; the
+first bytes `16 03 01` are a TLS handshake record. Every command and error code in the
+README's table was taken from the server code.
