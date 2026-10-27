@@ -240,7 +240,10 @@ def main():
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 5050
 
     raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    raw.connect((host, port))
+    try:
+        raw.connect((host, port))
+    except OSError as e:
+        sys.exit(f"[!] Cannot reach the server at {host}:{port}: {e}")
 
     # TLS handshake: the server sends its certificate and we verify it
     # (signed by our CA, valid dates, issued for `host`). If any check
