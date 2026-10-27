@@ -11,14 +11,15 @@ Run:  python test2_broadcast_latency.py [host] [port]
 """
 
 import os
-import socket
 import statistics
 import sys
 import threading
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "client"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from protocol import send_line, recv_line
+from secure_conn import connect_and_login
 
 HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 5050
@@ -30,11 +31,7 @@ ready_barrier = threading.Barrier(NUM_RECEIVERS + 1)  # + main thread
 
 
 def receiver(idx):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((HOST, PORT))
-    send_line(sock, "LOGIN", f"latency_rx_{idx}", "pw")
-    reply = recv_line(sock)
-    assert reply[0] == "LOGIN_OK", reply
+    sock = connect_and_login(HOST, PORT, f"latency_rx_{idx}")
 
     ready_barrier.wait()  # don't listen until every receiver is logged in
 
@@ -56,11 +53,7 @@ def main():
     for t in threads:
         t.start()
 
-    sender = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sender.connect((HOST, PORT))
-    send_line(sender, "LOGIN", "latency_sender", "pw")
-    reply = recv_line(sender)
-    assert reply[0] == "LOGIN_OK", reply
+    sender = connect_and_login(HOST, PORT, "latency_sender")
 
     ready_barrier.wait()  # wait until all 5 receivers are logged in and listening
 
@@ -74,7 +67,7 @@ def main():
     recv_line(sender)
     sender.close()
 
-    print(f"Test 2: broadcast delivery latency to {NUM_RECEIVERS} clients")
+    print(f"Test 2: broadcast delivery latency to {NUM_RECEIVERS} clients (over TLS)")
     print(f"  avg: {statistics.mean(latencies_ms):.3f} ms")
     print(f"  min: {min(latencies_ms):.3f} ms")
     print(f"  max: {max(latencies_ms):.3f} ms")
