@@ -18,7 +18,7 @@ import ssl
 import sys
 import threading
 
-from protocol import send_line, recv_line, recv_exact, send_exact
+from protocol import send_line, recv_line, recv_exact, send_exact, sha256_hex
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
@@ -183,20 +183,26 @@ def do_upload(sock):
         print("File not found locally.")
         return
     filename = os.path.basename(path)
-    filesize = os.path.getsize(path)
+    with open(path, "rb") as f:
+        data = f.read()
+    filesize = len(data)
+    digest = sha256_hex(data)            # computed BEFORE the file is sent
+    print(f"SHA-256: {digest}")
 
-    send_line(sock, "UPLOAD", filename, filesize)
+    send_line(sock, "UPLOAD", filename, filesize, digest)
     fields = expect("READY")
     if fields[0] != "READY":
         return
 
-    with open(path, "rb") as f:
-        data = f.read()
     send_exact(sock, data)
 
     fields = expect("UPLOAD_OK")
     if fields[0] == "UPLOAD_OK":
-        print(f"Uploaded '{filename}' ({filesize} bytes).")
+        print(f"Uploaded '{filename}' ({filesize} bytes). "
+              "Integrity check passed: the server's SHA-256 matches.")
+    elif fields[1:] == ["INTEGRITY_FAIL"]:
+        print("Integrity check FAILED: the file was changed or corrupted on the way. "
+              "The server did not store it.")
 
 
 def do_download(sock):
