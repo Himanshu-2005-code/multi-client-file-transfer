@@ -80,3 +80,126 @@ python tests/test_protocol.py
 
 **Upgrading from A1:** an A1 `server/users.txt` holds plaintext passwords and is not
 accepted by A2. Delete it and register the users again.
+
+## Protocol (A2 version)
+
+### Layers
+
+```
+our application protocol   COMMAND|field|field\n  + raw file bytes
+TLS 1.2 / 1.3              encryption, server authentication, record integrity
+TCP                        reliable byte stream (port 5050)
+```
+
+A client first opens a TCP connection, then does a TLS handshake. Only after the
+handshake succeeds is any application message sent, so every message below,
+including passwords, is encrypted.
+
+### Message format (unchanged from A1)
+
+- Control message: one line of UTF-8 text, fields separated by `|`, ending in `\n`.
+- File data: raw bytes sent right after a control line that states their exact size.
+  The receiver reads exactly that many bytes (length-prefix framing).
+- New in A2: file transfers carry the file's SHA-256 digest (64 hex characters).
+
+### Commands
+
+Changes from A1 are in **bold**.
+
+| Client sends | Server replies | Errors |
+|---|---|---|
+| **`REGISTER\|user\|password`** | **`REGISTER_OK\|user`** | **USER_EXISTS, BAD_USERNAME, BAD_PASSWORD**, BAD_ARGS, ALREADY_LOGGED_IN |
+| `LOGIN\|user\|password` | `LOGIN_OK\|user` | AUTH_FAILED (wrong password **or unknown user**), USER_ALREADY_ONLINE, BAD_ARGS, ALREADY_LOGGED_IN, **TOO_MANY_ATTEMPTS** (3rd failure, then disconnect) |
+| `LIST` | `USERS\|alice,bob` | |
+| `ALLUSERS` | `ALLUSERS\|alice:online,carol:offline` | |
+| `FILES` | `FILES\|a.txt,b.pdf` | |
+| `MSG\|to\|text` | `MSG_OK`; receiver gets `MSG\|from\|text` | USER_NOT_FOUND |
+| `BROADCAST\|text` | `BROADCAST_OK`; every other user gets `BROADCAST\|from\|text` | |
+| `UPLOAD\|name\|size\|`**`sha256`** | `READY`, client sends bytes, then `UPLOAD_OK\|name` | BAD_ARGS (incl. missing digest), **INTEGRITY_FAIL** |
+| `DOWNLOAD\|name` | `DOWNLOAD_OK\|name\|size\|`**`sha256`** + bytes | FILE_NOT_FOUND |
+| `SEND\|to\|name\|size\|`**`sha256`** | `READY`, bytes, `SEND_OK\|name`; receiver gets `SEND_INCOMING\|name\|from\|size\|`**`sha256`** + bytes | USER_NOT_FOUND, BAD_ARGS, **INTEGRITY_FAIL** |
+| `LOGOUT` | `LOGOUT_OK`, then the server closes the connection | |
+
+Any command other than REGISTER or LOGIN before logging in gets `ERROR|NOT_LOGGED_IN`;
+an unknown command gets `ERROR|UNKNOWN_COMMAND`; an unexpected server fault gets
+`ERROR|SERVER_ERROR` and the connection is closed. Every request gets exactly one reply.
+
+Usernames: 1-32 characters from letters, digits, `_`, `.`, `-` (`:` `,` `|` and spaces
+would break `users.txt` or the comma-separated LIST reply).
+
+### Sequence diagrams
+
+**Connect, register and log in**
+
+```
+Client                                        Server
+  |---- TCP SYN / SYN-ACK / ACK -------------->|   (done by the OS)
+  |---- TLS ClientHello ----------------------->|
+  |<--- ServerHello + server.crt ---------------|
+  |  client checks: signed by ca.crt? not expired? issued for this address?
+  |  (any check fails -> close, nothing else is sent)
+  |<--- key exchange done, session keys ------->|   everything below is encrypted
+  |---- REGISTER|alice|pw1 -------------------->|   hash = PBKDF2(pw1, random salt)
+  |<--- REGISTER_OK|alice ----------------------|   users.txt: alice:pbkdf2_sha256$...
+  |---- LOGIN|alice|pw1 ----------------------->|   recompute hash with stored salt, compare
+  |<--- LOGIN_OK|alice -------------------------|
+```
+
+**Upload with integrity check**
+
+```
+Client                                        Server
+  | digest = SHA-256(file)   (before sending)  |
+  |---- UPLOAD|notes.pdf|102400|<digest> ----->|
+  |<--- READY ----------------------------------|
+  |---- 102400 raw bytes ---------------------->|   SHA-256(received) == digest ?
+  |<--- UPLOAD_OK|notes.pdf --------------------|   yes: save file, save digest in digests/
+  |<--- ERROR|INTEGRITY_FAIL -------------------|   no:  file not saved
+```
+
+**Download with integrity check**
+
+```
+Client                                        Server
+  |---- DOWNLOAD|notes.pdf -------------------->|   digest = the one saved at upload
+  |<--- DOWNLOAD_OK|notes.pdf|102400|<digest> --|
+  |<--- 102400 raw bytes -----------------------|
+  | SHA-256(received) == digest ?  yes: save to downloads/   no: report FAILED, don't save
+```
+
+**Send to another user (two checks)**
+
+```
+Alice                         Server                          Bob
+  | digest = SHA-256(file)      |                               |
+  |-- SEND|bob|f|size|digest -->|                               |
+  |<-- READY -------------------|                               |
+  |-- raw bytes --------------->| check 1: SHA-256 == digest?   |
+  |                             |   no: ERROR|INTEGRITY_FAIL to Alice, nothing forwarded
+  |                             |-- SEND_INCOMING|f|alice|size|digest -->|
+  |                             |-- raw bytes ---------------->| check 2: SHA-256 == digest?
+  |<-- SEND_OK|f ---------------|                               | no: report FAILED, don't save
+```
+
+## Security design
+
+- **Certificates (`certs/gen_certs.py`, OpenSSL).** We act as our own Certificate
+  Authority: `ca.key` signs `server.crt`. The server certificate lists the names it is
+  valid for (`localhost`, `127.0.0.1`, plus any IP given to the script) and can only be
+  used for TLS server authentication. The private keys never leave the machine and are
+  in `.gitignore`.
+- **TLS (Python `ssl`, built on OpenSSL).** Server: `make_tls_context()` loads
+  `server.crt`/`server.key`, minimum TLS 1.2; each accepted socket is wrapped in its own
+  thread (10 s handshake timeout), so each client gets an independent session with its
+  own keys. Client: trusts only `ca.crt`, requires a valid certificate and checks the
+  server name; on failure it exits before sending anything. In practice TLS 1.3 with
+  `TLS_AES_256_GCM_SHA384` is negotiated.
+- **Passwords.** Stored as `pbkdf2_sha256$200000$<16-byte salt>$<hash>`; compared with
+  `hmac.compare_digest`. Unknown users are checked against a dummy hash so a login takes
+  the same time whether or not the user exists.
+- **Integrity.** SHA-256 (`protocol.sha256_hex`) on every UPLOAD, DOWNLOAD and SEND, as
+  in the diagrams above. The server records each upload's verified digest in
+  `server/digests/`, so a file changed on the server's disk later is caught on download.
+- **Concurrency.** Several threads can write to one client's TLS socket (its own replies,
+  and MSG/BROADCAST/SEND_INCOMING from other clients). A write lock per socket keeps
+  every message, and every header + file pair, from being mixed with another.
