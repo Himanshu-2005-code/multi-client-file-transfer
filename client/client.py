@@ -111,6 +111,8 @@ def do_login(sock):
     if fields[0] == "LOGIN_OK":
         print(f"Logged in as {username}")
         return username
+    if fields[1:] in (["TOO_MANY_ATTEMPTS"], ["DISCONNECTED"]):
+        sys.exit("Too many failed logins: the server closed the connection.")
     return None
 
 
