@@ -239,8 +239,25 @@ def main():
     host = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 5050
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((host, port))
+    raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    raw.connect((host, port))
+
+    # TLS handshake: the server sends its certificate and we verify it
+    # (signed by our CA, valid dates, issued for `host`). If any check
+    # fails we refuse to talk to this server at all.
+    try:
+        sock = make_tls_context().wrap_socket(raw, server_hostname=host)
+    except ssl.SSLCertVerificationError as e:
+        raw.close()
+        sys.exit(f"[!] Server certificate rejected: {e.verify_message.rstrip('.')}. "
+                 "Not connecting to an untrusted server.")
+    except (ssl.SSLError, OSError) as e:
+        raw.close()
+        sys.exit(f"[!] Secure connection failed: {e}")
+    print(f"Secure connection: {sock.version()}, cipher {sock.cipher()[0]}")
+    print(f"Server certificate verified (issued to "
+          f"{dict(x[0] for x in sock.getpeercert()['subject'])['commonName']}, "
+          f"by {dict(x[0] for x in sock.getpeercert()['issuer'])['commonName']})")
 
     t = threading.Thread(target=reader_thread, args=(sock,), daemon=True)
     t.start()
