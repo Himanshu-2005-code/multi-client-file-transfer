@@ -54,6 +54,24 @@ def wait_for_server(timeout=5.0, port=PORT):
 
 
 def run_checks():
+    # --- registration ---
+    reg = connect()
+    for name, pw in (("alice", "pw1"), ("bob", "pw2"), ("charlie", "pw3")):
+        send_line(reg, "REGISTER", name, pw)
+        r = recv_line(reg)
+        check(f"register {name}", r[0] == "REGISTER_OK" and r[1] == name)
+    send_line(reg, "REGISTER", "alice", "other")
+    r = recv_line(reg)
+    check("registering a taken name rejected", r == ["ERROR", "USER_EXISTS"])
+    send_line(reg, "REGISTER", "bad,name", "x")
+    r = recv_line(reg)
+    check("invalid username rejected", r == ["ERROR", "BAD_USERNAME"])
+    reg.close()
+
+    users_txt = open(os.path.join(ROOT, "server", "users.txt"), encoding="utf-8").read()
+    check("users.txt holds no plaintext passwords",
+          all(pw not in users_txt for pw in ("pw1", "pw2", "pw3")) and "pbkdf2_sha256$" in users_txt)
+
     # --- login two users ---
     alice = connect()
     send_line(alice, "LOGIN", "alice", "pw1")
