@@ -42,14 +42,15 @@ and the generated keys and certificates in `certs/`.
 
 Run all commands from the project folder.
 
-**1. Generate the certificates (once):**
+**1. Certificates.** The submitted zip already contains them (made with
+`certs/gen_certs.py`), so the server and client run straight away. To make new ones:
 
 ```
 python certs/gen_certs.py
 ```
 
 This makes `ca.key`, `ca.crt`, `server.key`, `server.csr` and `server.crt` and ends
-with `server.crt: OK`. To run the server on another laptop on the same network, add
+with `server.crt: OK`. The keys in the zip are test keys for this assignment only. To run the server on another laptop on the same network, add
 that laptop's IP: `python certs/gen_certs.py 192.168.1.5`.
 
 **2. Start the server** (default `0.0.0.0:5050`):
@@ -346,6 +347,7 @@ auto-registration, editing the stored file for the tamper demo).
 | 9 | Chose "Edit the stored file" for the demo | `demo/tamper_file.py` |
 | 10 | "next" | experiments over TLS, test 4 (100 KB / 1 MB / 10 MB), TCP_NODELAY fix |
 | 11 | "next" | this README |
+| 12 | Chose "Include them" (certificates in the zip) | `2024261_A2.zip` |
 
 Questions I asked the AI to understand the material (no code produced): "what is tls",
 the CN syllabus slides (to check which security topics my course covers), and the
