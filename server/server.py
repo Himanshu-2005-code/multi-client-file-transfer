@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import hmac
 import os
+import re
 import socket
 import ssl
 import sys
@@ -136,6 +137,38 @@ def check_or_register(username, password):
             save_user(username, new_hash)
             return True
     return verify_password(password, stored)
+
+
+# Usernames end up in users.txt ("name:hash") and in comma-separated LIST
+# replies, so ':' ',' '|' and spaces are not allowed.
+USERNAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,32}")
+
+
+def register_user(username, password):
+    """Create a new account. Returns None on success, else an error code."""
+    if not USERNAME_RE.fullmatch(username):
+        return "BAD_USERNAME"
+    if not password:
+        return "BAD_PASSWORD"
+    new_hash = hash_password(password)          # slow part, outside the lock
+    with users_lock:
+        if username in load_users():
+            return "USER_EXISTS"
+        save_user(username, new_hash)
+    return None
+
+
+def handle_register(sock, fields):
+    if len(fields) != 3:
+        send_line(sock, "ERROR", "BAD_ARGS")
+        return
+    _, username, password = fields
+    error = register_user(username, password)
+    if error:
+        send_line(sock, "ERROR", error)
+        return
+    send_line(sock, "REGISTER_OK", username)
+    print(f"[+] new account: {username}")
 
 
 def handle_login(sock, fields):
@@ -361,6 +394,13 @@ def handle_client(raw_sock, addr, tls_ctx):
                 break
 
             command = fields[0] if fields else ""
+
+            if command == "REGISTER":
+                if username is not None:
+                    send_line(sock, "ERROR", "ALREADY_LOGGED_IN")
+                    continue
+                handle_register(sock, fields)
+                continue
 
             if command == "LOGIN":
                 if username is not None:
