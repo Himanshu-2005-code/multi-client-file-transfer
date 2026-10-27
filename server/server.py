@@ -315,12 +315,17 @@ def handle_download(sock, fields):
         send_line(sock, "ERROR", "FILE_NOT_FOUND")
         return
 
-    filesize = os.path.getsize(path)
     with open(path, "rb") as f:
         data = f.read()
+    filesize = len(data)
+    # Send the digest recorded when the file was uploaded, NOT one computed
+    # now: if the stored file was modified or corrupted on the server's disk
+    # since then, the client's check will fail. Files without a record (put
+    # into storage/ by hand) get a digest of their current contents.
+    digest = load_digest(filename) or sha256_hex(data)
     # Header and payload must go out back-to-back with nothing in between.
     with write_lock(sock):
-        send_line(sock, "DOWNLOAD_OK", filename, filesize)
+        send_line(sock, "DOWNLOAD_OK", filename, filesize, digest)
         send_exact(sock, data)
 
 
