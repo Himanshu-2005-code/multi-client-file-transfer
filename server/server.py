@@ -18,7 +18,7 @@ import sys
 import threading
 import traceback
 
-from protocol import recv_line, recv_exact
+from protocol import recv_line, recv_exact, sha256_hex
 from protocol import send_line as _send_line, send_exact as _send_exact
 
 HOST = "0.0.0.0"
@@ -28,6 +28,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 USERS_FILE = os.path.join(BASE_DIR, "users.txt")
 STORAGE_DIR = os.path.join(BASE_DIR, "storage")
 os.makedirs(STORAGE_DIR, exist_ok=True)
+# SHA-256 of each stored file, recorded when its upload passed the integrity
+# check: digests/<filename>.sha256. Kept apart from storage/ so FILES only
+# lists real files.
+DIGEST_DIR = os.path.join(BASE_DIR, "digests")
+os.makedirs(DIGEST_DIR, exist_ok=True)
 
 # Server certificate and private key, made by certs/gen_certs.py (OpenSSL).
 CERTS_DIR = os.path.join(BASE_DIR, "..", "certs")
@@ -250,8 +255,24 @@ def safe_filename(name):
     return os.path.basename(name.replace("\\", "/"))
 
 
+def save_digest(filename, digest):
+    os.makedirs(DIGEST_DIR, exist_ok=True)
+    with open(os.path.join(DIGEST_DIR, filename + ".sha256"), "w", encoding="utf-8") as f:
+        f.write(digest + "\n")
+
+
+def load_digest(filename):
+    """The digest recorded at upload time, or None if there is none."""
+    try:
+        with open(os.path.join(DIGEST_DIR, filename + ".sha256"), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
 def handle_upload(sock, fields):
-    if len(fields) != 3:
+    # UPLOAD|filename|size|sha256   (the client computed the digest before sending)
+    if len(fields) != 4:
         send_line(sock, "ERROR", "BAD_ARGS")
         return
     filename = safe_filename(fields[1])
@@ -260,13 +281,25 @@ def handle_upload(sock, fields):
     except ValueError:
         send_line(sock, "ERROR", "BAD_ARGS")
         return
+    sent_digest = fields[3].lower()
 
     send_line(sock, "READY")
     data = recv_exact(sock, filesize)
 
+    # Integrity check: recompute the digest of what actually arrived and
+    # compare it with the digest the client sent. Only matching files are kept.
+    got_digest = sha256_hex(data)
+    if got_digest != sent_digest:
+        print(f"[integrity] UPLOAD '{filename}' FAILED: "
+              f"sent {sent_digest[:16]}..., received {got_digest[:16]}...")
+        send_line(sock, "ERROR", "INTEGRITY_FAIL")
+        return
+    print(f"[integrity] UPLOAD '{filename}' OK ({got_digest[:16]}...)")
+
     path = os.path.join(STORAGE_DIR, filename)
     with open(path, "wb") as f:
         f.write(data)
+    save_digest(filename, got_digest)
 
     send_line(sock, "UPLOAD_OK", filename)
 

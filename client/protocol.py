@@ -12,6 +12,7 @@ control line right before it always announces the exact byte count, so the
 reader knows precisely how many bytes to pull off the socket.
 """
 
+import hashlib
 import socket
 
 ENCODING = "utf-8"
@@ -57,3 +58,12 @@ def recv_exact(sock: socket.socket, n: int) -> bytes:
 
 def send_exact(sock: socket.socket, data: bytes) -> None:
     sock.sendall(data)
+
+
+def sha256_hex(data: bytes) -> str:
+    """
+    Cryptographic digest (fingerprint) of the file contents: 64 hex chars.
+    Changing even one bit of the data gives a completely different value.
+    Sent next to a file and recomputed after reception to check integrity.
+    """
+    return hashlib.sha256(data).hexdigest()

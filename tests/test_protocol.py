@@ -18,7 +18,7 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "client"))
-from protocol import send_line, recv_line, recv_exact, send_exact
+from protocol import send_line, recv_line, recv_exact, send_exact, sha256_hex
 
 HOST, PORT = "127.0.0.1", 5098
 CA_FILE = os.path.join(ROOT, "certs", "ca.crt")
@@ -164,12 +164,28 @@ def run_checks():
 
     # --- upload / download ---
     payload = b"hello world file contents" * 100
-    send_line(alice, "UPLOAD", "test.txt", len(payload))
+    send_line(alice, "UPLOAD", "test.txt", len(payload), sha256_hex(payload))
     r = recv_line(alice)
     check("upload ready", r[0] == "READY")
     send_exact(alice, payload)
     r = recv_line(alice)
-    check("upload ok", r[0] == "UPLOAD_OK")
+    check("upload ok (digest matches)", r[0] == "UPLOAD_OK")
+    with open(os.path.join(ROOT, "server", "digests", "test.txt.sha256")) as f:
+        check("server recorded the verified digest", f.read().strip() == sha256_hex(payload))
+
+    # digest of the original, but one byte changed on the way
+    corrupted = b"X" + payload[1:]
+    send_line(alice, "UPLOAD", "corrupt.txt", len(corrupted), sha256_hex(payload))
+    recv_line(alice)                                   # READY
+    send_exact(alice, corrupted)
+    r = recv_line(alice)
+    check("upload with wrong digest rejected", r == ["ERROR", "INTEGRITY_FAIL"])
+    check("corrupted upload not stored",
+          not os.path.exists(os.path.join(ROOT, "server", "storage", "corrupt.txt")))
+
+    send_line(alice, "UPLOAD", "nodigest.txt", 3)
+    r = recv_line(alice)
+    check("upload without a digest rejected", r == ["ERROR", "BAD_ARGS"])
 
     send_line(bob, "DOWNLOAD", "test.txt")
     r = recv_line(bob)
@@ -252,12 +268,15 @@ def main():
     server_dir = os.path.join(ROOT, "server")
     users_file = os.path.join(server_dir, "users.txt")
     storage_dir = os.path.join(server_dir, "storage")
+    digest_dir = os.path.join(server_dir, "digests")
 
     # start from a clean slate so re-runs are deterministic
     if os.path.exists(users_file):
         os.remove(users_file)
     if os.path.exists(storage_dir):
         shutil.rmtree(storage_dir)
+    if os.path.exists(digest_dir):
+        shutil.rmtree(digest_dir)
 
     proc = subprocess.Popen(
         [sys.executable, "server.py", HOST, str(PORT)],
@@ -279,6 +298,8 @@ def main():
             os.remove(users_file)
         if os.path.exists(storage_dir):
             shutil.rmtree(storage_dir)
+        if os.path.exists(digest_dir):
+            shutil.rmtree(digest_dir)
 
 
 if __name__ == "__main__":
