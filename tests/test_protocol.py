@@ -27,6 +27,7 @@ CA_FILE = os.path.join(ROOT, "certs", "ca.crt")
 def connect():
     """TCP connect, then TLS handshake, trusting only our own CA."""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)   # same as the real client
     s.connect((HOST, PORT))
     ctx = ssl.create_default_context(cafile=CA_FILE)
     return ctx.wrap_socket(s, server_hostname=HOST)

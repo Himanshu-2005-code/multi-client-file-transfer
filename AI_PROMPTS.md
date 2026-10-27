@@ -280,3 +280,25 @@ buffering was most likely this same bug.)
 certificates (no OpenSSL run); a client registers, logs in, uploads and lists files; test 4 passes;
 the TLS concurrency stress test (4 x 8 MB sends to one user while that user sends commands)
 passes 5/5.
+
+---
+
+## Step 13: results on my laptop and the report
+
+**My prompts / choices:** "next"; chose **"Full technical report"**; for the results:
+**"you can run it on my laptop"**.
+
+**AI output:**
+- Ran everything on my laptop (Linux VM on the laptop, Python 3.10) through the Claude desktop
+  app: the 47 protocol tests pass; tests 1-4 for A2; tests 1-3 for A1 for comparison.
+- **Problem found:** a 1 MB upload took ~43 ms every time while a 10 MB upload took ~22 ms
+  and every download ~2 ms. Same Nagle/delayed-ACK effect as in step 10, this time on the
+  client's writes (only the server had TCP_NODELAY).
+  - `client: send small writes immediately (TCP_NODELAY)` (1 MB upload now ~3 ms)
+  - `experiments, tests: use TCP_NODELAY like the real client`
+- `readme: use the results measured on my laptop, with A1 for comparison`
+- `2024261_A2.pdf`: the technical report (introduction, design, implementation, security
+  demos, results, challenges, conclusion, AI usage).
+
+A packet capture could not be run inside the laptop's VM (no capture permission), so the
+report uses the loopback capture from step 11; the Wireshark screenshot is mine to add.

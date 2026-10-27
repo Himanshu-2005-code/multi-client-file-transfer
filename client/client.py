@@ -296,6 +296,9 @@ def main():
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 5050
 
     raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Send each write immediately (no Nagle delay): otherwise the last small
+    # piece of an upload waited ~40 ms for the server's delayed ACK.
+    raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     try:
         raw.connect((host, port))
     except OSError as e:
