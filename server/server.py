@@ -292,7 +292,21 @@ def make_tls_context():
     return ctx
 
 
-def handle_client(sock, addr):
+def handle_client(raw_sock, addr, tls_ctx):
+    # TLS handshake first, inside this client's own thread, so a slow or
+    # broken handshake never holds up accept() for everyone else. The
+    # timeout stops a client that connects but never speaks TLS from
+    # keeping a thread forever.
+    try:
+        raw_sock.settimeout(10)
+        sock = tls_ctx.wrap_socket(raw_sock, server_side=True)
+        sock.settimeout(None)
+    except (ssl.SSLError, OSError) as e:
+        print(f"[!] TLS handshake with {addr} failed: {e}")
+        raw_sock.close()
+        return
+    print(f"[TLS] {addr}: {sock.version()}, cipher {sock.cipher()[0]}")
+
     username = None
     try:
         while True:
@@ -397,7 +411,8 @@ def main():
                 client_sock, addr = server_sock.accept()
             except socket.timeout:
                 continue
-            t = threading.Thread(target=handle_client, args=(client_sock, addr), daemon=True)
+            t = threading.Thread(target=handle_client, args=(client_sock, addr, tls_ctx),
+                                 daemon=True)
             t.start()
     except KeyboardInterrupt:
         print("\n[*] Shutting down")
