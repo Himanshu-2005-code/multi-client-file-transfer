@@ -203,3 +203,57 @@ Alice                         Server                          Bob
 - **Concurrency.** Several threads can write to one client's TLS socket (its own replies,
   and MSG/BROADCAST/SEND_INCOMING from other clients). A write lock per socket keeps
   every message, and every header + file pair, from being mixed with another.
+
+## Demos
+
+### 1. The client rejects an untrusted server
+
+```
+python certs/gen_rogue_cert.py
+python server/server.py --cert certs/rogue.crt --key certs/rogue.key
+python client/client.py
+```
+
+`rogue.crt` is self-signed: its names and dates are fine, but our CA did not sign it
+(what a fake server in a man-in-the-middle attack would have). The client prints
+`[!] Server certificate rejected: self-signed certificate. Not connecting to an untrusted server.`
+and never asks for the password; the fake server logs `tlsv1 alert unknown ca`.
+Restart the real server (without `--cert/--key`) afterwards.
+
+**Wrong address:** start the real server with `python server/server.py 0.0.0.0` and run
+`python client/client.py 127.0.0.2`. The certificate is not issued for 127.0.0.2, so the
+client prints `IP address mismatch, certificate is not valid for '127.0.0.2'`.
+
+### 2. Integrity failure on an intentionally modified file
+
+With the server running and a client logged in:
+
+1. client: `upload` -> `demo/integrity_test.txt` (prints the SHA-256, "Integrity check passed")
+2. another terminal: `python demo/tamper_file.py integrity_test.txt`
+   (flips one bit in `server/storage/integrity_test.txt`: "Integrity" -> "Hntegrity")
+3. client: `download` -> `integrity_test.txt` -> **"Integrity check FAILED"**, the expected and
+   received SHA-256 are printed and the file is not saved
+4. `python demo/tamper_file.py integrity_test.txt --restore`, then download again -> passes
+
+A corrupted upload or send is rejected by the server with `INTEGRITY_FAIL`
+(`tests/test_protocol.py` checks this by sending one changed byte with the original digest).
+
+### 3. Wireshark shows no unencrypted data
+
+1. Start Wireshark. For traffic on the same machine, capture on the loopback interface
+   (on Windows: "Adapter for loopback traffic capture", from Npcap's loopback support).
+2. Display filter: `tcp.port == 5050`. If the packets show only as TCP data, use
+   Analyze -> Decode As -> TCP port 5050 -> TLS.
+3. Register, log in, send a message, broadcast, upload/download/send a file.
+4. Wireshark shows the TLS handshake (Client Hello, Server Hello) and then only
+   "Application Data" records. Follow -> TCP Stream shows random-looking bytes, and
+   Edit -> Find Packet -> String finds neither the password, the message text nor the
+   file contents.
+
+For comparison, the same steps against the A1 code (`main` branch) show
+`LOGIN|alice|<password>` and the message and file text in plain sight.
+
+The same check was done during development with a packet capture on loopback:
+the A1 capture contained the password, a broadcast message and a file's contents in
+plaintext; the A2 capture of the same actions (58 packets) contained none of them, and
+its first bytes are `16 03 01`, a TLS handshake record.
