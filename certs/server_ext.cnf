@@ -1,0 +1,18 @@
+# Extensions added to the server certificate when the CA signs it.
+# Read by: openssl x509 -req ... -extfile server_ext.cnf
+
+# This certificate belongs to a server, not to a CA: it cannot sign others.
+basicConstraints = critical, CA:FALSE
+
+# What the key may be used for: TLS server authentication.
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+
+# Names the client may use to reach the server. The client checks that the
+# address it connected to appears here (hostname verification).
+# gen_certs.py appends any extra IP addresses passed on the command line.
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+IP.1 = 127.0.0.1
