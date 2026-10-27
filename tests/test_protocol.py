@@ -192,6 +192,20 @@ def run_checks():
     check("download ok header", r[0] == "DOWNLOAD_OK" and int(r[2]) == len(payload))
     data = recv_exact(bob, int(r[2]))
     check("downloaded bytes match", data == payload)
+    check("download carries the recorded digest, and it verifies",
+          len(r) == 4 and r[3] == sha256_hex(payload) == sha256_hex(data))
+
+    # modify the stored file on the server's disk after upload
+    stored = os.path.join(ROOT, "server", "storage", "test.txt")
+    with open(stored, "r+b") as f:
+        f.write(b"Z")
+    send_line(bob, "DOWNLOAD", "test.txt")
+    r = recv_line(bob)
+    data = recv_exact(bob, int(r[2]))
+    check("file modified on the server is detected on download",
+          r[3] == sha256_hex(payload) and sha256_hex(data) != r[3])
+    with open(stored, "wb") as f:          # put the original back
+        f.write(payload)
 
     send_line(bob, "DOWNLOAD", "doesnotexist.txt")
     r = recv_line(bob)
