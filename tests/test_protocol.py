@@ -181,6 +181,10 @@ def run_checks():
     check("corrupted upload not stored",
           not os.path.exists(os.path.join(ROOT, "server", "storage", "corrupt.txt")))
 
+    send_line(alice, "UPLOAD", "nodigest.txt", 3)
+    r = recv_line(alice)
+    check("upload without a digest rejected", r == ["ERROR", "BAD_ARGS"])
+
     send_line(bob, "DOWNLOAD", "test.txt")
     r = recv_line(bob)
     check("download ok header", r[0] == "DOWNLOAD_OK" and int(r[2]) == len(payload))

@@ -252,7 +252,7 @@ def safe_filename(name):
 
 def handle_upload(sock, fields):
     # UPLOAD|filename|size|sha256   (the client computed the digest before sending)
-    if len(fields) not in (3, 4):
+    if len(fields) != 4:
         send_line(sock, "ERROR", "BAD_ARGS")
         return
     filename = safe_filename(fields[1])
@@ -261,21 +261,20 @@ def handle_upload(sock, fields):
     except ValueError:
         send_line(sock, "ERROR", "BAD_ARGS")
         return
-    sent_digest = fields[3].lower() if len(fields) == 4 else None
+    sent_digest = fields[3].lower()
 
     send_line(sock, "READY")
     data = recv_exact(sock, filesize)
 
     # Integrity check: recompute the digest of what actually arrived and
     # compare it with the digest the client sent. Only matching files are kept.
-    if sent_digest is not None:
-        got_digest = sha256_hex(data)
-        if got_digest != sent_digest:
-            print(f"[integrity] UPLOAD '{filename}' FAILED: "
-                  f"sent {sent_digest[:16]}..., received {got_digest[:16]}...")
-            send_line(sock, "ERROR", "INTEGRITY_FAIL")
-            return
-        print(f"[integrity] UPLOAD '{filename}' OK ({got_digest[:16]}...)")
+    got_digest = sha256_hex(data)
+    if got_digest != sent_digest:
+        print(f"[integrity] UPLOAD '{filename}' FAILED: "
+              f"sent {sent_digest[:16]}..., received {got_digest[:16]}...")
+        send_line(sock, "ERROR", "INTEGRITY_FAIL")
+        return
+    print(f"[integrity] UPLOAD '{filename}' OK ({got_digest[:16]}...)")
 
     path = os.path.join(STORAGE_DIR, filename)
     with open(path, "wb") as f:
