@@ -11,6 +11,7 @@ Run:  python tests/test_protocol.py
 import os
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -20,12 +21,15 @@ sys.path.insert(0, os.path.join(ROOT, "client"))
 from protocol import send_line, recv_line, recv_exact, send_exact
 
 HOST, PORT = "127.0.0.1", 5098
+CA_FILE = os.path.join(ROOT, "certs", "ca.crt")
 
 
 def connect():
+    """TCP connect, then TLS handshake, trusting only our own CA."""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((HOST, PORT))
-    return s
+    ctx = ssl.create_default_context(cafile=CA_FILE)
+    return ctx.wrap_socket(s, server_hostname=HOST)
 
 
 def check(label, cond):
@@ -176,6 +180,9 @@ def run_checks():
 
 
 def main():
+    if not os.path.isfile(CA_FILE):
+        subprocess.run([sys.executable, os.path.join(ROOT, "certs", "gen_certs.py")], check=True)
+
     server_dir = os.path.join(ROOT, "server")
     users_file = os.path.join(server_dir, "users.txt")
     storage_dir = os.path.join(server_dir, "storage")

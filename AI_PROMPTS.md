@@ -60,3 +60,21 @@ The AI added those extensions and the key identifiers.
 **What I checked:** `python certs/gen_certs.py` ends with `server.crt: OK`; a test
 TLS connection with Python's `ssl` module works (TLS 1.3) and a connection to an
 address that is not in the certificate is rejected.
+
+---
+
+## Step 3: TLS on the server
+
+**My prompt:** "ok next"
+
+**AI output:**
+- `server: load the TLS certificate and private key at startup` (`make_tls_context()`, TLS 1.2 minimum)
+- `server: wrap every client connection in TLS` (handshake in each client's own thread, 10 s handshake timeout)
+- `tests: talk to the server over TLS`
+
+**What I checked:**
+- `python tests/test_protocol.py`: all 27 checks pass over TLS (10 runs).
+- Stress test: 4 clients each send an 8 MB file to the same user while that user keeps
+  sending LIST commands on the same encrypted connection. 4/4 files intact in 5 runs,
+  no server errors. The server log shows every connection on TLS 1.3
+  (`TLS_AES_256_GCM_SHA384`).
