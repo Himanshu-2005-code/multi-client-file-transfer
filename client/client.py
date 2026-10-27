@@ -322,12 +322,16 @@ def main():
     t.start()
 
     username = None
-    while username is None:
-        choice = input("Login (l) or register a new account (r)? ").strip().lower()
-        if choice == "r":
-            do_register(sock)
-        elif choice == "l":
-            username = do_login(sock)
+    try:
+        while username is None:
+            choice = input("Login (l) or register a new account (r)? ").strip().lower()
+            if choice == "r":
+                do_register(sock)
+            elif choice == "l":
+                username = do_login(sock)
+    except (KeyboardInterrupt, EOFError):
+        sock.close()
+        sys.exit("\nExiting.")
 
     print(HELP)
     try:

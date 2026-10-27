@@ -251,3 +251,32 @@ running the same actions against A1 and A2. A1: the password, a broadcast messag
 file's contents were readable in the capture. A2: 58 packets, none of them readable; the
 first bytes `16 03 01` are a TLS handshake record. Every command and error code in the
 README's table was taken from the server code.
+
+---
+
+## Step 12: package the submission
+
+**My input:** chose **"Include them"** when the AI asked whether the zip should contain
+ready-made certificates and keys.
+
+**AI output:**
+- `readme: say that the submission zip includes the certificates`
+- `2024261_A2.zip`, built from the `a2` branch with freshly generated certificates
+  (CA, server, and the rogue one for the demo), without runtime folders.
+
+**Problem found while testing the zip:** a client session from the unzipped folder sometimes
+hung after sending its first command (REGISTER), and the server never received it (3 of 6 starts,
+then 3 of 20 in a control run). Thread dumps: the main thread had sent REGISTER and was waiting;
+the reader thread was blocked inside an SSL read. Cause: TLS 1.3 session tickets sent right
+after the handshake were being processed by the reader thread while the main thread wrote on
+the same TLS connection. (An earlier "hang" in step 6 that the AI put down to output
+buffering was most likely this same bug.)
+
+- `server: do not send TLS 1.3 session tickets` (`ctx.num_tickets = 0`): 20/20 client starts work.
+- `client: exit cleanly on Ctrl+C or end of input at the login prompt` (found in the same testing)
+- `readme: ...` problem added to "Problems found and fixed"
+
+**What I checked:** unzipped into an empty folder; the 47 tests pass there using the bundled
+certificates (no OpenSSL run); a client registers, logs in, uploads and lists files; test 4 passes;
+the TLS concurrency stress test (4 x 8 MB sends to one user while that user sends commands)
+passes 5/5.

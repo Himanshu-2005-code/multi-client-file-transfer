@@ -422,6 +422,12 @@ def make_tls_context(cert_file=CERT_FILE, key_file=KEY_FILE):
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2   # refuse old SSL/TLS versions
     ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
+    # No TLS 1.3 session tickets. Tickets are sent right after the handshake
+    # and processed by the client's reader thread while its main thread may
+    # already be writing the first command; one TLS connection used by two
+    # threads at that moment can hang (seen in ~50% of client starts). We do
+    # not use session resumption, so nothing is lost.
+    ctx.num_tickets = 0
     return ctx
 
 

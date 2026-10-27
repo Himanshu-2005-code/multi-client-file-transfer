@@ -42,14 +42,15 @@ and the generated keys and certificates in `certs/`.
 
 Run all commands from the project folder.
 
-**1. Generate the certificates (once):**
+**1. Certificates.** The submitted zip already contains them (made with
+`certs/gen_certs.py`), so the server and client run straight away. To make new ones:
 
 ```
 python certs/gen_certs.py
 ```
 
 This makes `ca.key`, `ca.crt`, `server.key`, `server.csr` and `server.crt` and ends
-with `server.crt: OK`. To run the server on another laptop on the same network, add
+with `server.crt: OK`. The keys in the zip are test keys for this assignment only. To run the server on another laptop on the same network, add
 that laptop's IP: `python certs/gen_certs.py 192.168.1.5`.
 
 **2. Start the server** (default `0.0.0.0:5050`):
@@ -303,6 +304,13 @@ and send (including a corrupted file that must not be forwarded).
   login waited ~42 ms (broadcast latency went from 0.9 ms to 31 ms). Cause: Nagle's
   algorithm with delayed ACKs, triggered by the small TLS records sent right after the
   handshake. Fixed with `TCP_NODELAY` on the server's sockets.
+- **Client hung on its first command (intermittent).** Testing the packaged zip, the
+  client sometimes hung right after sending REGISTER (3 of 20 starts in one test). Thread
+  dumps showed the reader thread inside an SSL read while the main thread had just written
+  the command. Right after the handshake a TLS 1.3 server sends session tickets; the
+  client's reader thread processed them while the main thread wrote on the same TLS
+  connection, and the write was lost. Fixed by sending no session tickets
+  (`ctx.num_tickets = 0`; we do not use session resumption): 20 of 20 starts work.
 - **From A1:** concurrent writes to one client's socket could mix bytes (1 of 4 files
   intact in a stress test); fixed with a write lock per socket. LOGOUT_OK was sent before
   the user was marked offline; now the user goes offline first.
@@ -346,6 +354,7 @@ auto-registration, editing the stored file for the tamper demo).
 | 9 | Chose "Edit the stored file" for the demo | `demo/tamper_file.py` |
 | 10 | "next" | experiments over TLS, test 4 (100 KB / 1 MB / 10 MB), TCP_NODELAY fix |
 | 11 | "next" | this README |
+| 12 | Chose "Include them" (certificates in the zip) | `2024261_A2.zip` |
 
 Questions I asked the AI to understand the material (no code produced): "what is tls",
 the CN syllabus slides (to check which security topics my course covers), and the
