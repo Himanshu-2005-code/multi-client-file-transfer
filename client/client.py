@@ -20,6 +20,7 @@ import sys
 import threading
 
 from protocol import send_line, recv_line, recv_exact, send_exact, sha256_hex
+import e2e  # end-to-end encryption for MSG and SEND (needs: pip install cryptography)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
@@ -54,6 +55,16 @@ PUSH_COMMANDS = {"MSG", "BROADCAST", "SEND_INCOMING"}
 # unexpected disconnect -- it's just noticing the shutdown it was told about.
 expected_close = threading.Event()
 
+# This user's name and private key, for decrypting end-to-end encrypted
+# MSG / SEND pushes. Set right after login; key_ready tells the reader thread.
+me = {"name": None, "key": None}
+key_ready = threading.Event()
+
+
+def my_key():
+    key_ready.wait(timeout=10)
+    return me["key"]
+
 
 def reader_thread(sock):
     while True:
@@ -69,7 +80,17 @@ def reader_thread(sock):
 
         if command == "MSG":
             _, sender, text = fields[0], fields[1], "|".join(fields[2:])
-            print(f"\n[MSG from {sender}] {text}\n> ", end="", flush=True)
+            if text.startswith(e2e.MSG_PREFIX):
+                try:
+                    text = e2e.decrypt_message(my_key(), text, sender, me["name"])
+                except (e2e.E2EError, ValueError):
+                    print(f"\n[!] Encrypted message from {sender} could not be decrypted "
+                          f"(not for this key, or modified on the way).\n> ", end="", flush=True)
+                    continue
+                print(f"\n[MSG from {sender}, end-to-end encrypted] {text}\n> ", end="", flush=True)
+            else:
+                print(f"\n[MSG from {sender}] (NOT end-to-end encrypted) {text}\n> ",
+                      end="", flush=True)
         elif command == "BROADCAST":
             _, sender, text = fields[0], fields[1], "|".join(fields[2:])
             print(f"\n[BROADCAST from {sender}] {text}\n> ", end="", flush=True)
@@ -87,6 +108,19 @@ def reader_thread(sock):
                       f"    received SHA-256: {got}\n"
                       f"    The file was NOT saved.\n> ", end="", flush=True)
                 continue
+            e2e_note = ""
+            if filename == e2e.E2E_FILENAME:
+                # Only this client's private key can open it; the AES-GCM tag
+                # also proves nobody (not even the server) changed it.
+                try:
+                    filename, data = e2e.decrypt_file(my_key(), data, sender, me["name"])
+                except (e2e.E2EError, ValueError):
+                    print(f"\n[!] Encrypted file from {sender} could not be decrypted "
+                          f"(not for this key, or modified on the way). Not saved.\n> ",
+                          end="", flush=True)
+                    continue
+                filesize, got = len(data), sha256_hex(data)
+                e2e_note = "\n    End-to-end encrypted: decrypted with my private key."
             path = os.path.join(RECEIVED_DIR, filename)
             with open(path, "wb") as f:
                 f.write(data)
@@ -94,7 +128,7 @@ def reader_thread(sock):
                      if expected else "")
             print(f"\n[+] Received '{filename}' from {sender} "
                   f"({filesize} bytes) -> {RECEIVED_DIR}\n"
-                  f"    SHA-256: {got}\n    {check}\n> ", end="", flush=True)
+                  f"    SHA-256: {got}\n    {check}{e2e_note}\n> ", end="", flush=True)
         elif command == "DOWNLOAD_OK":
             # The reader thread owns all socket reads, so it must pull the
             # file bytes itself before handing the reply to the main thread.
@@ -143,10 +177,46 @@ def do_login(sock):
     fields = expect("LOGIN_OK")
     if fields[0] == "LOGIN_OK":
         print(f"Logged in as {username}")
+        publish_my_key(sock, username)
         return username
     if fields[1:] in (["TOO_MANY_ATTEMPTS"], ["DISCONNECTED"]):
         sys.exit("Too many failed logins: the server closed the connection.")
     return None
+
+
+def publish_my_key(sock, username):
+    """Load (or create, the first time) this user's key pair and give the
+    server the PUBLIC half, so others can encrypt messages and files to us."""
+    key = e2e.load_or_create_private_key(username)
+    me["name"], me["key"] = username, key
+    key_ready.set()
+    pub = e2e.public_key_b64(key)
+    send_line(sock, "PUBKEY", pub)
+    if expect("PUBKEY_OK")[0] == "PUBKEY_OK":
+        print(f"End-to-end key published. My key fingerprint: {e2e.fingerprint(pub)}")
+
+
+def get_peer_key(sock, user):
+    """The receiver's public key from the server, checked against the one we
+    saw the first time (the server could otherwise give us a fake key)."""
+    send_line(sock, "GETKEY", user)
+    fields = expect("KEY")
+    if fields[0] != "KEY":
+        if fields[1:] == ["NO_KEY"]:
+            print(f"{user} has no end-to-end key yet (they must log in once with this client).")
+        return None
+    pub = fields[2]
+    status = e2e.check_known_key(me["name"], user, pub)
+    if status == "CHANGED":
+        print(f"[!] {user}'s public key has CHANGED since last time "
+              f"(new fingerprint {e2e.fingerprint(pub)}). It may be a fake key. Not sending.\n"
+              f"    If {user} really made a new key, remove their line from "
+              f"client/keys/{me['name']}.known.")
+        return None
+    if status == "new":
+        print(f"First message to {user}: key fingerprint {e2e.fingerprint(pub)} "
+              f"remembered (compare it with {user} in person).")
+    return pub
 
 
 def do_register(sock):
@@ -196,10 +266,14 @@ def do_files(sock):
 def do_msg(sock):
     target = input("To user: ").strip()
     text = input("Message: ").strip()
-    send_line(sock, "MSG", target, text)
+    pub = get_peer_key(sock, target)
+    if pub is None:
+        return
+    # Encrypted for the receiver's public key: the server relays it unread.
+    send_line(sock, "MSG", target, e2e.encrypt_message(pub, text, me["name"], target))
     fields = expect("MSG_OK")
     if fields[0] == "MSG_OK":
-        print("Sent.")
+        print("Sent (end-to-end encrypted: only", target, "can read it).")
 
 
 def do_broadcast(sock):
@@ -265,21 +339,29 @@ def do_send(sock):
     filename = os.path.basename(path)
     with open(path, "rb") as f:
         data = f.read()
-    filesize = len(data)
-    digest = sha256_hex(data)            # computed BEFORE the file is sent
-    print(f"SHA-256: {digest}")
+    print(f"SHA-256 of the file: {sha256_hex(data)}")
+    pub = get_peer_key(sock, target)
+    if pub is None:
+        return
+    # Encrypt the file (and its name) for the receiver. The server sees only
+    # the name "E2E", the size and the digest of the ENCRYPTED bytes, which it
+    # still uses to check that nothing was corrupted on the way to it.
+    envelope = e2e.encrypt_file(pub, filename, data, me["name"], target)
+    filesize = len(envelope)
+    digest = sha256_hex(envelope)        # computed BEFORE the file is sent
 
-    send_line(sock, "SEND", target, filename, filesize, digest)
+    send_line(sock, "SEND", target, e2e.E2E_FILENAME, filesize, digest)
     fields = expect("READY")
     if fields[0] != "READY":
         return
 
-    send_exact(sock, data)
+    send_exact(sock, envelope)
 
     fields = expect("SEND_OK")
     if fields[0] == "SEND_OK":
-        print(f"Sent '{filename}' to {target}. The server verified the SHA-256; "
-              f"{target}'s client checks it again on arrival.")
+        print(f"Sent '{filename}' to {target}, end-to-end encrypted (only {target} can "
+              f"decrypt it). The server verified the SHA-256 of the encrypted bytes; "
+              f"{target}'s client checks it again and decrypts.")
     elif fields[1:] == ["INTEGRITY_FAIL"]:
         print("Integrity check FAILED at the server: the file was changed or corrupted "
               "on the way. It was not forwarded.")
@@ -290,11 +372,11 @@ Commands:
   list                 - show online (currently connected) users
   allusers             - show every registered user, online or offline
   files                - show files available on the server
-  msg                  - send a private message
+  msg                  - send a private message (end-to-end encrypted)
   broadcast            - send a message to everyone
   upload               - upload a file to the server
   download             - download a file from the server
-  send                 - send a file to another user
+  send                 - send a file to another user (end-to-end encrypted)
   help                 - show this help
   logout               - disconnect
 """

@@ -8,6 +8,8 @@ Run:  python server.py [host] [port]
 """
 
 import argparse
+import base64
+import binascii
 import hashlib
 import hmac
 import os
@@ -33,6 +35,11 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 # lists real files.
 DIGEST_DIR = os.path.join(BASE_DIR, "digests")
 os.makedirs(DIGEST_DIR, exist_ok=True)
+# Each user's PUBLIC key for end-to-end encryption (pubkeys/<user>.pub, one
+# line of base64). The private keys stay on the clients, so the server can
+# hand public keys out but cannot decrypt anything encrypted with them.
+PUBKEY_DIR = os.path.join(BASE_DIR, "pubkeys")
+os.makedirs(PUBKEY_DIR, exist_ok=True)
 
 # Server certificate and private key, made by certs/gen_certs.py (OpenSSL).
 CERTS_DIR = os.path.join(BASE_DIR, "..", "certs")
@@ -241,6 +248,10 @@ def handle_msg(sock, sender, fields):
         send_line(sock, "ERROR", "USER_NOT_FOUND")
         return
 
+    if text.startswith("E2E:"):
+        # End-to-end encrypted: the server only sees base64 ciphertext.
+        print(f"[relay] MSG {sender}->{target}: end-to-end encrypted, "
+              f"{len(text)} chars the server cannot read")
     try:
         send_line(target_sock, "MSG", sender, text)
     except OSError:
@@ -248,6 +259,35 @@ def handle_msg(sock, sender, fields):
         return
 
     send_line(sock, "MSG_OK")
+
+
+def handle_pubkey(sock, username, fields):
+    # PUBKEY|<base64 public key>   the logged-in user publishes their own key
+    if len(fields) != 2 or not (0 < len(fields[1]) <= 4096):
+        send_line(sock, "ERROR", "BAD_ARGS")
+        return
+    try:
+        base64.b64decode(fields[1], validate=True)
+    except (binascii.Error, ValueError):
+        send_line(sock, "ERROR", "BAD_ARGS")
+        return
+    with open(os.path.join(PUBKEY_DIR, username + ".pub"), "w", encoding="utf-8") as f:
+        f.write(fields[1] + "\n")
+    send_line(sock, "PUBKEY_OK")
+
+
+def handle_getkey(sock, fields):
+    # GETKEY|<user>  ->  KEY|<user>|<base64 public key>
+    if len(fields) != 2 or not USERNAME_RE.fullmatch(fields[1]):
+        send_line(sock, "ERROR", "BAD_ARGS")
+        return
+    try:
+        with open(os.path.join(PUBKEY_DIR, fields[1] + ".pub"), encoding="utf-8") as f:
+            key = f.read().strip()
+    except OSError:
+        send_line(sock, "ERROR", "NO_KEY")
+        return
+    send_line(sock, "KEY", fields[1], key)
 
 
 def safe_filename(name):
@@ -364,6 +404,9 @@ def handle_send(sock, sender, fields):
         send_line(sock, "ERROR", "INTEGRITY_FAIL")
         return
     print(f"[integrity] SEND '{filename}' {sender}->{target} OK ({got_digest[:16]}...)")
+    if filename == "E2E":
+        print(f"[relay] SEND {sender}->{target}: end-to-end encrypted file, "
+              f"{filesize} bytes the server cannot read")
 
     try:
         # Header and payload must go out back-to-back with nothing in between.
@@ -522,6 +565,10 @@ def handle_client(raw_sock, addr, tls_ctx):
                     handle_download(sock, fields)
                 elif command == "SEND":
                     handle_send(sock, username, fields)
+                elif command == "PUBKEY":
+                    handle_pubkey(sock, username, fields)
+                elif command == "GETKEY":
+                    handle_getkey(sock, fields)
                 else:
                     send_line(sock, "ERROR", "UNKNOWN_COMMAND")
             except ConnectionError:

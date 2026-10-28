@@ -4,7 +4,10 @@ Test 4 (Assignment 2): secure file transfer of 100 KB, 1 MB and 10 MB files.
 For each size, over TLS and with SHA-256 integrity checks:
   1. upload    alice -> server       (server verifies the digest)
   2. download  server -> bob         (bob verifies the digest recorded at upload)
-  3. send      alice -> server -> bob (server verifies, then bob verifies)
+  3. send      alice -> server -> bob, end-to-end encrypted like the real client:
+               alice encrypts for bob's public key, the server verifies the digest
+               of the encrypted bytes, bob verifies it and decrypts
+               (the time includes encryption and decryption)
 Prints the time and throughput of each transfer and whether integrity passed.
 
 Run (server must be running):  python experiments/test4_secure_transfer.py [host] [port]
@@ -17,6 +20,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from secure_conn import connect_and_login  # noqa: E402
 from protocol import send_line, recv_line, recv_exact, send_exact, sha256_hex  # noqa: E402
+import e2e  # noqa: E402
 
 HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 5050
@@ -33,6 +37,11 @@ def main():
     print(f"Test 4: secure transfers over TLS ({alice.version()}, {alice.cipher()[0]})")
     print(f"{'size':>6} | {'transfer':<24} | {'time':>9} | {'MB/s':>7} | integrity")
     print("-" * 66)
+
+    # bob's end-to-end key pair (kept in memory only), published to the server
+    bob_key = e2e.rsa.generate_private_key(public_exponent=65537, key_size=e2e.RSA_BITS)
+    send_line(bob, "PUBKEY", e2e.public_key_b64(bob_key))
+    recv_line(bob)                                     # PUBKEY_OK
 
     all_ok = True
     for label, size in SIZES:
@@ -59,18 +68,23 @@ def main():
 
         # 3. send alice -> bob: the server checks, then bob checks
         t = time.perf_counter()
-        send_line(alice, "SEND", "test4_bob", name, size, digest)
+        send_line(alice, "GETKEY", "test4_bob")
+        bob_pub = recv_line(alice)[2]                  # KEY|test4_bob|<public key>
+        envelope = e2e.encrypt_file(bob_pub, name, data, "test4_alice", "test4_bob")
+        send_line(alice, "SEND", "test4_bob", e2e.E2E_FILENAME, len(envelope), sha256_hex(envelope))
         recv_line(alice)                               # READY
-        send_exact(alice, data)
-        incoming = recv_line(bob)                      # SEND_INCOMING|name|sender|size|sha256
-        got = recv_exact(bob, int(incoming[3]))
+        send_exact(alice, envelope)
+        incoming = recv_line(bob)                      # SEND_INCOMING|E2E|sender|size|sha256
+        got_env = recv_exact(bob, int(incoming[3]))
+        env_ok = sha256_hex(got_env) == incoming[4]
+        got_name, got = e2e.decrypt_file(bob_key, got_env, "test4_alice", "test4_bob")
         send_time = time.perf_counter() - t
-        send_ok = (recv_line(alice)[0] == "SEND_OK"
-                   and sha256_hex(got) == incoming[4] == digest)
+        send_ok = (recv_line(alice)[0] == "SEND_OK" and env_ok
+                   and got_name == name and sha256_hex(got) == digest)
 
         for what, secs, ok in (("upload alice->server", up_time, up_ok),
                                ("download server->bob", down_time, down_ok),
-                               ("send alice->server->bob", send_time, send_ok)):
+                               ("send (E2E) alice->bob", send_time, send_ok)):
             all_ok &= ok
             print(f"{label:>6} | {what:<24} | {secs * 1000:7.1f} ms | {mbps(size, secs):7.1f} | "
                   f"{'PASS' if ok else 'FAIL'}")

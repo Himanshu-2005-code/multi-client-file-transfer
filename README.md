@@ -5,19 +5,23 @@ Roll number: 2024261
 This is Assignment 1's multi-client TCP file transfer application with security
 added. Everything from A1 still works (login, LIST, ALLUSERS, FILES, MSG,
 BROADCAST, UPLOAD, DOWNLOAD, SEND, LOGOUT, many clients at once); it now runs
-over TLS and checks every file with SHA-256.
+over TLS, checks every file with SHA-256, and private messages and files sent
+from one user to another are **end-to-end encrypted**: the server relays them
+but cannot read them.
 
 | A2 requirement | How it is done |
 |---|---|
 | 1. Authentication: no plaintext passwords; invalid attempts rejected | Passwords only travel inside TLS; the server stores salted PBKDF2-SHA256 hashes. New users must `REGISTER`; wrong password or unknown user gets `AUTH_FAILED`; 3 failures close the connection. |
 | 2. Certificates and secure communication | Our own CA and a server certificate made with **OpenSSL**. The client trusts only our CA, checks the server's certificate and name, and refuses untrusted servers. Each client connection has its own TLS session. |
-| 3. Secure messaging | MSG and BROADCAST travel inside each client's TLS session. |
-| 4. Secure file transfer (100 KB, 1 MB, 10 MB) | UPLOAD, DOWNLOAD and SEND all go over TLS. `experiments/test4_secure_transfer.py` runs all three sizes. |
+| 3. Secure messaging | MSG and BROADCAST travel inside each client's TLS session. **MSG is end-to-end encrypted**: the sender's client encrypts it for the receiver's public key (RSA-OAEP + AES-256-GCM), so the server, which only relays it, cannot read it. |
+| 4. Secure file transfer (100 KB, 1 MB, 10 MB) | UPLOAD, DOWNLOAD and SEND all go over TLS. **SEND (user to user) is end-to-end encrypted**, file name included. `experiments/test4_secure_transfer.py` runs all three sizes. |
 | 5. Message digests and file integrity | SHA-256 computed before sending, recomputed after receiving, compared; failures reported and the file is not kept. `demo/tamper_file.py` shows a failure. |
 
 ## Requirements
 
-- Python 3.9 or newer (developed and tested with Python 3.13). Standard library only, no `pip install`.
+- Python 3.9 or newer (developed and tested with Python 3.13).
+- Server: standard library only. Client: the `cryptography` package for the end-to-end
+  encryption (`pip install -r requirements.txt`, i.e. `pip install cryptography`).
 - OpenSSL command-line tool, only to generate the certificates.
   On Windows it comes with Git for Windows; `certs/gen_certs.py` finds it there too.
 
@@ -25,17 +29,20 @@ over TLS and checks every file with SHA-256.
 
 ```
 server/        server.py (TLS server, auth, integrity checks), protocol.py
-client/        client.py (interactive TLS client), protocol.py (same as server's)
+client/        client.py (interactive TLS client), protocol.py (same as server's),
+               e2e.py (end-to-end encryption: keys, encrypt/decrypt)
 certs/         gen_certs.py, server_ext.cnf (CA + server certificate with OpenSSL)
                gen_rogue_cert.py (untrusted certificate for the rejection demo)
-demo/          integrity_test.txt, tamper_file.py (integrity failure demo)
+demo/          integrity_test.txt, tamper_file.py (integrity failure demo),
+               curious_server.py (shows what the server can see)
 experiments/   test1-3 from A1 (now over TLS), test4 secure transfer 100KB/1MB/10MB
-tests/         test_protocol.py (automated end-to-end checks)
+tests/         test_protocol.py (protocol checks), test_e2e.py (end-to-end encryption)
 AI_PROMPTS.md  every prompt given to the AI and what it produced
 ```
 
 Created when running (not part of the submission): `server/users.txt`,
-`server/storage/`, `server/digests/`, `client/downloads/`, `client/received/`,
+`server/storage/`, `server/digests/`, `server/pubkeys/`, `client/downloads/`,
+`client/received/`, `client/keys/` (each user's private key; never sent anywhere),
 and the generated keys and certificates in `certs/`.
 
 ## Running it
@@ -75,14 +82,18 @@ The client prints the TLS version and who the certificate was issued to. Choose 
 to register a new account, then `l` to log in (the password is not shown while typing). Type `help` for the commands:
 `list`, `allusers`, `files`, `msg`, `broadcast`, `upload`, `download`, `send`, `logout`.
 Uploads and sends print the file's SHA-256; downloads and received files report whether
-the integrity check passed.
+the integrity check passed. At login the client makes the user's key pair (first time
+only) and publishes the public key; `msg` and `send` are then end-to-end encrypted.
 
 **4. Automated tests** (start their own server; run them when no demo is going on,
 because they delete `users.txt`, `storage/` and `digests/`):
 
 ```
 python tests/test_protocol.py
+python tests/test_e2e.py
 ```
+
+(`test_e2e.py` also deletes `client/keys/` and `server/pubkeys/`.)
 
 **Upgrading from A1:** an A1 `server/users.txt` holds plaintext passwords and is not
 accepted by A2. Delete it and register the users again.
@@ -107,6 +118,8 @@ including passwords, is encrypted.
 - File data: raw bytes sent right after a control line that states their exact size.
   The receiver reads exactly that many bytes (length-prefix framing).
 - New in A2: file transfers carry the file's SHA-256 digest (64 hex characters).
+- End-to-end encrypted MSG text is `E2E:` + base64 of the envelope; an end-to-end
+  encrypted SEND uses the file name `E2E` (the real name is inside the envelope).
 
 ### Commands
 
@@ -124,6 +137,8 @@ Changes from A1 are in **bold**.
 | `UPLOAD\|name\|size\|`**`sha256`** | `READY`, client sends bytes, then `UPLOAD_OK\|name` | BAD_ARGS (incl. missing digest), **INTEGRITY_FAIL** |
 | `DOWNLOAD\|name` | `DOWNLOAD_OK\|name\|size\|`**`sha256`** + bytes | FILE_NOT_FOUND |
 | `SEND\|to\|name\|size\|`**`sha256`** | `READY`, bytes, `SEND_OK\|name`; receiver gets `SEND_INCOMING\|name\|from\|size\|`**`sha256`** + bytes | USER_NOT_FOUND, BAD_ARGS, **INTEGRITY_FAIL** |
+| **`PUBKEY\|base64 public key`** | **`PUBKEY_OK`** (stored in `server/pubkeys/`) | BAD_ARGS |
+| **`GETKEY\|user`** | **`KEY\|user\|base64 public key`** | **NO_KEY**, BAD_ARGS |
 | `LOGOUT` | `LOGOUT_OK`, then the server closes the connection | |
 
 Any command other than REGISTER or LOGIN before logging in gets `ERROR|NOT_LOGGED_IN`;
@@ -187,6 +202,22 @@ Alice                         Server                          Bob
   |<-- SEND_OK|f ---------------|                               | no: report FAILED, don't save
 ```
 
+**End-to-end encrypted message and file (the server only relays)**
+
+```
+Alice                          Server                          Bob
+  |                              |<-- PUBKEY|<bob's public key> | (at bob's login)
+  |-- GETKEY|bob --------------->|                              |
+  |<- KEY|bob|<public key> ------|                              |
+  | first time: remember the key's fingerprint; later: refuse if it changed
+  | K = random AES-256 key;  C = AES-GCM(K, text);  W = RSA-OAEP(bob's public key, K)
+  |-- MSG|bob|E2E:base64(W+nonce+C) ->| sees only ciphertext      |
+  |                              |-- MSG|alice|E2E:... -------->| K = RSA-OAEP decrypt(W, bob's
+  |<- MSG_OK --------------------|                              |     private key); text = AES-GCM decrypt
+SEND: the same, with the file name and contents inside the envelope; the SHA-256 checks of
+the SEND diagram above run on the encrypted bytes.
+```
+
 ## Security design
 
 - **Certificates (`certs/gen_certs.py`, OpenSSL).** We act as our own Certificate
@@ -206,6 +237,21 @@ Alice                         Server                          Bob
 - **Integrity.** SHA-256 (`protocol.sha256_hex`) on every UPLOAD, DOWNLOAD and SEND, as
   in the diagrams above. The server records each upload's verified digest in
   `server/digests/`, so a file changed on the server's disk later is caught on download.
+- **End-to-end encryption (`client/e2e.py`, `cryptography` package).** TLS ends at the
+  server, so on its own the server could read every relayed MSG and SEND. Now each user
+  has an RSA-2048 key pair made by their own client (`client/keys/<user>.key`; the private
+  key never leaves the client) and publishes the public key with `PUBKEY`. To send, the
+  client gets the receiver's public key with `GETKEY`, encrypts the data with a fresh random
+  AES-256-GCM key, and encrypts that AES key with RSA-OAEP (SHA-256) for the receiver
+  (hybrid encryption: RSA is slow and can only encrypt a few hundred bytes). Only the
+  receiver's private key can recover the AES key. The GCM tag detects any change to the
+  envelope, and the sender, receiver and kind (MSG/SEND) are authenticated with it, so an
+  envelope cannot be replayed to someone else or as from someone else. The server is
+  standard-library only and never touches these keys.
+  Because the server hands out the public keys, it could try to hand out a fake one; the
+  client remembers each peer's key fingerprint the first time (`client/keys/<user>.known`,
+  "trust on first use") and refuses to send if it changes, and prints the fingerprint so
+  two users can compare it in person.
 - **Concurrency.** Several threads can write to one client's TLS socket (its own replies,
   and MSG/BROADCAST/SEND_INCOMING from other clients). A write lock per socket keeps
   every message, and every header + file pair, from being mixed with another.
@@ -257,7 +303,21 @@ With the server running and a client logged in:
 A corrupted upload or send is rejected by the server with `INTEGRITY_FAIL`
 (`tests/test_protocol.py` checks this by sending one changed byte with the original digest).
 
-### 3. Wireshark shows no unencrypted data
+### 3. The server cannot read private messages or files (end-to-end encryption)
+
+```
+python demo/curious_server.py          # the real server, printing everything it reads after TLS
+python client/client.py                # bob: r (register), l (log in)
+python client/client.py                # alice: register, log in, msg -> bob, send -> bob
+```
+
+The curious server prints `MSG|bob|E2E:R7YRFk6R1K0G...` and, for the file,
+`SEND|bob|E2E|4505|...` followed by random-looking bytes: neither the message text, the
+file name nor the contents. Bob's client prints the message and saves the file under its
+real name. (Uploads are different: a file uploaded to the server is stored there for
+anyone to download, so it is protected by TLS on the network, not end-to-end.)
+
+### 4. Wireshark shows no unencrypted data
 
 1. Start Wireshark. For traffic on the same machine, capture on the loopback interface
    (on Windows: "Adapter for loopback traffic capture", from Npcap's loopback support).
@@ -286,7 +346,7 @@ python experiments/test1_rtt.py                      # RTT of LIST, 100 requests
 python experiments/test2_broadcast_latency.py        # broadcast to 5 clients
 python experiments/test3_throughput.py 127.0.0.1 5050 1      # 10 clients x 1 MB
 python experiments/test3_throughput.py 127.0.0.1 5050 100    # 10 clients x 100 MB
-python experiments/test4_secure_transfer.py          # 100 KB / 1 MB / 10 MB upload, download, send
+python experiments/test4_secure_transfer.py          # 100 KB / 1 MB / 10 MB upload, download, E2E send
 ```
 
 All of them connect over TLS (helper: `experiments/secure_conn.py`, which registers the
@@ -302,24 +362,30 @@ A1 is the same machine without TLS or digests:
 | 3. 10 clients x 1 MB | 196 MB/s | 355 MB/s |
 | 3. 10 clients x 100 MB | 641 MB/s | 342 MB/s, 10/10 verified |
 
-Test 4 (A2 only), every transfer PASSES its SHA-256 check:
+Test 4 (A2 only, median of 3 runs), every transfer PASSES its SHA-256 check and every
+end-to-end encrypted file decrypts to the original:
 
-| Size | Upload | Download | Send (two hops) |
+| Size | Upload | Download | Send, end-to-end encrypted (two hops) |
 |---|---|---|---|
-| 100 KB | 1.4 ms | 0.6 ms | 0.9 ms |
-| 1 MB | 3.3 ms | 4.1 ms | 6.5 ms |
-| 10 MB | 23.7 ms | 17.5 ms | 31.9 ms |
+| 100 KB | 0.9 ms | 0.5 ms | 2.5 ms |
+| 1 MB | 2.3 ms | 2.2 ms | 7.9 ms |
+| 10 MB | 23.7 ms | 19.9 ms | 61.4 ms |
 
 TLS adds a little to every request (RTT +0.016 ms) and makes no measurable difference to
 small broadcasts, but it roughly halves bulk throughput: every byte is encrypted and
 authenticated (AES-256-GCM) on both ends and hashed (SHA-256) on both ends. The 1 MB
 throughput run is too short (~0.03-0.05 s) to compare reliably. "Send" is slowest because
-the file crosses two TLS connections and is checked twice.
+the file crosses two TLS connections, is checked twice, and is also encrypted by the
+sender and decrypted by the receiver (the 100 KB send includes one RSA operation each way).
 
 `tests/test_protocol.py` starts its own server and runs 48 checks: rejection of an
 untrusted and an expired certificate, registration and login rules, no plaintext in `users.txt`, every A1 command,
 and the integrity checks for upload, download (including a file modified on the server)
 and send (including a corrupted file that must not be forwarded).
+`tests/test_e2e.py` runs the curious server and two real clients and checks 20 things:
+bob reads alice's message and file; the server never saw the text, the file name or the
+contents; another user's key cannot decrypt; a changed envelope or a wrong sender is
+rejected; a changed public key is detected; PUBKEY / GETKEY replies.
 
 ## Problems found and fixed during A2
 
@@ -352,6 +418,13 @@ and send (including a corrupted file that must not be forwarded).
 - Files are read into memory whole; very large files (GBs) need a lot of RAM.
 - The server's own copy of the digests could be changed by someone who controls the
   server; signing digests with the uploader's private key would cover that.
+- End-to-end: the very first public key of a peer is trusted as the server gives it
+  (fingerprints should be compared in person); private keys are stored unencrypted in
+  `client/keys/`; BROADCAST and uploads are protected by TLS only (the server is their
+  intended reader / storage); the server still sees who talks to whom, when, and sizes.
+  Messages are not signed: the server cannot read or change an envelope, but since public
+  keys are public it could create a new one claiming to be from another user (signing
+  with the sender's private key, RSA-PSS, would close this).
 - Only the server is authenticated by certificate; clients authenticate with passwords
   (client certificates, i.e. mutual TLS, would be the next step).
 
@@ -388,6 +461,7 @@ auto-registration, editing the stored file for the tamper demo).
 | 13 | "next"; chose "Full technical report"; "you can run it on my laptop" | experiments run on my laptop, client TCP_NODELAY fix, `2024261_A2.pdf` |
 | 14 | "check alll the requirements as i donot wantt o lose marks" | requirement audit; expired-certificate demo; CA key left out of the zip; password hidden while typing |
 | 15 | "where can i loose marks"; "76 commits in one day is too much"; chose "Squash to one commit per step" | git history squashed to one commit per step (no code change) |
+| 16 | "The end-to-end encryption means that only the intended receiver should be able to see the decrypted data. If server is only a relay, then it should not be able to see it."; chose "cryptography package" and "MSG + SEND" | end-to-end encryption of MSG and SEND, curious-server demo, `tests/test_e2e.py` |
 
 Questions I asked the AI to understand the material (no code produced): "what is tls",
 the CN syllabus slides (to check which security topics my course covers), and the
@@ -395,4 +469,4 @@ approach and deadline planning.
 
 **What I verified myself:** every step was tested before moving on (automated tests,
 manual runs of server and clients, the experiments, the tamper and rejection demos,
-and a packet capture comparing A1 and A2). I can explain each part without the AI.
+and a packet capture comparing A1 and A2, and the curious-server run for end-to-end encryption). I can explain each part without the AI.

@@ -344,3 +344,36 @@ capture of the whole run. First result: 34/36. The two gaps, and one extra fix:
 
 **What I checked:** `git diff` between the old and new history is empty; the 48 tests pass.
 
+---
+
+## Step 16: end-to-end encryption of MSG and SEND
+
+**My prompt:** "The end-to-end encryption means that only the intended receiver should be able to
+see the decrypted data. If server is only a relay, then it should not be able to see it."
+
+The AI pointed out that A2 did not meet this yet: TLS ends at the server, so the server
+decrypted every relayed MSG / BROADCAST / SEND. It asked three questions; my answers: I can
+still resubmit; use the **"cryptography package (Recommended)"** (Python's standard library
+has no RSA or AES); encrypt **"MSG + SEND (Recommended)"** (the one-to-one relays).
+
+**AI output** (one commit, "Step 16"):
+- `client/e2e.py`: each user's RSA-2048 key pair, made by their client on first login
+  (private key stays in `client/keys/`); hybrid encryption: random AES-256-GCM key per message
+  or file, wrapped with RSA-OAEP (SHA-256) for the receiver; sender, receiver and kind are
+  authenticated with the GCM tag; the file name is encrypted too; trust on first use of each
+  peer's key (refuse if it changes), with fingerprints to compare in person.
+- `server/server.py`: `PUBKEY` (store a user's public key) and `GETKEY` (hand it out);
+  logs that an end-to-end message / file was relayed without being readable. The server
+  stays standard-library only and never decrypts.
+- `client/client.py`: publishes the key at login; `msg` and `send` encrypt for the receiver;
+  incoming ones are decrypted (a failure is reported and nothing is saved).
+- `demo/curious_server.py`: the real server, printing everything it reads after TLS.
+- `tests/test_e2e.py` (20 checks, two real clients); experiment 4's send is end-to-end
+  encrypted; README and `requirements.txt` (`cryptography`).
+
+**What I checked:** the curious server's output for a message and a file (only `E2E:` +
+base64, and `SEND|bob|E2E|4505|...` with random bytes); `tests/test_e2e.py` and the 48
+`tests/test_protocol.py` checks pass in the container and on my laptop; experiment 4 on my
+laptop (3 runs, all PASS). Known limits are in the README (first key trusted as given;
+messages not signed; BROADCAST and uploads protected by TLS only).
+

@@ -30,3 +30,5 @@ server/digests/
 
 # originals saved by demo/tamper_file.py
 demo/backup/
+server/pubkeys/
+client/keys/

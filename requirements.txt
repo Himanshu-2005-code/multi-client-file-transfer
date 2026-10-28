@@ -1,2 +1,4 @@
-# No external dependencies -- server and client use only the Python
-# standard library (socket, threading, queue, os, sys, etc).
+# Server: Python standard library only.
+# Client: the 'cryptography' package for end-to-end encryption of MSG and SEND
+# (RSA-OAEP + AES-256-GCM). Install with:  pip install -r requirements.txt
+cryptography>=41
