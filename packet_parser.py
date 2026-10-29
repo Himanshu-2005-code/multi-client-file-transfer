@@ -126,3 +126,61 @@ def parse_tcp(segment):
         "payload": payload,
         "payload_length": len(payload),
     }
+
+
+def parse_udp(datagram):
+    """
+    Decode a UDP datagram: `datagram` is the IP payload (bytes after the IP header).
+
+    Layout (RFC 768): four 2-byte fields, 8 bytes in total.
+      bytes 0-1 source port      bytes 2-3 destination port
+      bytes 4-5 length (UDP header + data, in bytes)
+      bytes 6-7 checksum
+      then the application data (payload)
+    """
+    if len(datagram) < 8:
+        raise ParseError(f"UDP header needs 8 bytes, got {len(datagram)}")
+
+    src_port, dst_port, length, checksum = struct.unpack("!HHHH", datagram[:8])
+    if length < 8:
+        raise ParseError(f"bad UDP length {length}")
+
+    # The length field says where the data ends; never read past what we have.
+    payload = datagram[8:length]
+    return {
+        "src_port": src_port,
+        "dst_port": dst_port,
+        "length": length,
+        "checksum": checksum,
+        "payload": payload,
+        "payload_length": len(payload),
+    }
+
+
+def parse_packet(data):
+    """
+    Decode a whole IPv4 packet (bytes starting at the IP header).
+
+    The IP "protocol" field decides automatically what comes next:
+    6 -> parse_tcp, 17 -> parse_udp, anything else is left undecoded.
+    Returns {"ip": ..., "transport": "TCP" / "UDP" / None, "tcp" or "udp": ...}.
+    """
+    ip = parse_ipv4(data)
+    # The IP payload runs from the end of the IP header to "total length".
+    # Bytes after total length are link-layer padding (Ethernet pads small
+    # frames to 60 bytes), not part of the packet.
+    end = min(ip["total_length"], len(data))
+    ip_payload = data[ip["header_length"]:end]
+    packet = {"ip": ip, "transport": None, "ip_payload": ip_payload}
+
+    if ip["fragment_offset"] != 0:
+        # A later fragment of a split datagram: it starts in the middle of
+        # the TCP/UDP data, so there is no transport header to decode.
+        return packet
+    if ip["protocol"] == 6:
+        packet["transport"] = "TCP"
+        packet["tcp"] = parse_tcp(ip_payload)
+    elif ip["protocol"] == 17:
+        packet["transport"] = "UDP"
+        packet["udp"] = parse_udp(ip_payload)
+    return packet

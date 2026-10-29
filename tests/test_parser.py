@@ -8,7 +8,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from packet_parser import ParseError, parse_ipv4, parse_tcp  # noqa: E402
+from packet_parser import ParseError, parse_ipv4, parse_packet, parse_tcp, parse_udp  # noqa: E402
 
 failures = 0
 
@@ -110,8 +110,59 @@ def test_tcp():
             check(f"TCP rejects {label}", True)
 
 
+def test_udp():
+    # A DNS query over UDP: 8-byte header + 4 bytes of data
+    #   d6 d8   source port 55000
+    #   00 35   destination port 53 (DNS)
+    #   00 0c   length 12 (8 header + 4 data)
+    #   12 34   checksum 0x1234
+    dgram = bytes.fromhex("d6d80035000c1234") + b"abcd"
+    udp = parse_udp(dgram)
+    check("UDP source port 55000", udp["src_port"] == 55000)
+    check("UDP destination port 53", udp["dst_port"] == 53)
+    check("UDP length 12", udp["length"] == 12)
+    check("UDP checksum 0x1234", udp["checksum"] == 0x1234)
+    check("UDP payload 'abcd', length 4", udp["payload"] == b"abcd" and udp["payload_length"] == 4)
+    check("UDP with no data: payload length 0",
+          parse_udp(bytes.fromhex("d6d8003500081234"))["payload_length"] == 0)
+    for label, bad in (("too short (7 bytes)", dgram[:7]),
+                       ("length field 4 (< 8)", dgram[:4] + b"\x00\x04" + dgram[6:])):
+        try:
+            parse_udp(bad)
+            check(f"UDP rejects {label}", False)
+        except ParseError:
+            check(f"UDP rejects {label}", True)
+
+
+def ip_header(protocol, payload_len, frag=0):
+    """A 20-byte IPv4 header 10.0.0.1 -> 10.0.0.2 for the given protocol."""
+    import struct
+    return struct.pack("!BBHHHBBH4s4s", 0x45, 0, 20 + payload_len, 1, frag, 64, protocol, 0,
+                       bytes([10, 0, 0, 1]), bytes([10, 0, 0, 2]))
+
+
+def test_packet():
+    tcp_seg = bytes.fromhex("c0001f9000019c0a00032f495018ffff2f810000") + b"HELLO"
+    udp_dgram = bytes.fromhex("d6d80035000c1234") + b"abcd"
+
+    p = parse_packet(ip_header(6, len(tcp_seg)) + tcp_seg)
+    check("protocol 6 -> decoded as TCP automatically",
+          p["transport"] == "TCP" and p["tcp"]["dst_port"] == 8080 and p["tcp"]["payload"] == b"HELLO")
+    p = parse_packet(ip_header(17, len(udp_dgram)) + udp_dgram)
+    check("protocol 17 -> decoded as UDP automatically",
+          p["transport"] == "UDP" and p["udp"]["dst_port"] == 53 and p["udp"]["payload"] == b"abcd")
+    p = parse_packet(ip_header(1, 8) + bytes(8))
+    check("protocol 1 (ICMP) -> IP only, no TCP/UDP", p["transport"] is None and p["ip"]["protocol_name"] == "ICMP")
+    p = parse_packet(ip_header(6, len(tcp_seg)) + tcp_seg + bytes(10))
+    check("padding after total length is not payload", p["tcp"]["payload"] == b"HELLO")
+    p = parse_packet(ip_header(17, 8, frag=0x00B9) + bytes(8))
+    check("later fragment (offset > 0): no transport header decoded", p["transport"] is None)
+
+
 if __name__ == "__main__":
     test_ipv4()
     test_tcp()
+    test_udp()
+    test_packet()
     print("\nALL PARSER TESTS PASSED" if failures == 0 else f"\n{failures} TEST(S) FAILED")
     sys.exit(1 if failures else 0)

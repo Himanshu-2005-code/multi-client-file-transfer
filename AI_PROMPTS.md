@@ -74,3 +74,21 @@ so it holds only A3 files; this log; a README skeleton; `.gitignore`.
   a SYN with options and no data (payload length 0), all eight flags, and bad inputs.
 
 **What we checked:** the tests pass; the fields match the L13 "TCP segment structure" slide.
+
+---
+
+## Step 4: UDP header parsing and automatic TCP/UDP detection
+
+**Our prompt:** "next"
+
+**AI output:**
+- `packet_parser.py`: `parse_udp()` decodes the 8-byte UDP header with
+  `struct.unpack("!HHHH")` (ports, length, checksum); the payload ends where the length
+  field says. `parse_packet()` decodes a whole IPv4 packet: IP header first, then the IP
+  protocol field picks the next parser automatically (6 = TCP, 17 = UDP, others left as IP
+  only). The IP payload is cut at "total length" so Ethernet padding is not counted as data;
+  a later fragment (offset > 0) has no transport header, so none is decoded.
+- `tests/test_parser.py`: 13 more checks (46 in total): a DNS-style UDP datagram, an empty UDP
+  payload, bad UDP inputs, and whole packets detected as TCP, UDP and ICMP.
+
+**What we checked:** the tests pass.

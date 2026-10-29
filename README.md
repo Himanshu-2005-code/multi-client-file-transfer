@@ -72,6 +72,21 @@ if the header length is more than 20. Format `"!HHIIBBHHH"` (I = 4 bytes).
 | 18-19 | urgent pointer | 2 bytes |
 | header length .. end | payload | its length = segment length - header length (0 for a bare SYN or ACK) |
 
+**UDP header** (`parse_udp`): 8 bytes, format `"!HHHH"`.
+
+| Bytes | Field | How it is extracted |
+|---|---|---|
+| 0-1 | source port | 2 bytes |
+| 2-3 | destination port | 2 bytes |
+| 4-5 | length | 2 bytes: UDP header + data |
+| 6-7 | checksum | 2 bytes |
+| 8 .. length | payload | its length = length field - 8 |
+
+**TCP or UDP?** (`parse_packet`) The IP header's protocol field (byte 9) says what the IP
+payload contains: 6 = TCP, 17 = UDP; other protocols (e.g. 1 = ICMP) are shown with their
+IP header only. The IP payload is taken from the end of the IP header up to the IP total
+length, so link-layer padding after the packet is not mistaken for data.
+
 ## Use of AI
 
 See [`AI_PROMPTS.md`](AI_PROMPTS.md): every prompt, word for word, and what the
