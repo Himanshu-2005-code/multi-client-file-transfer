@@ -22,6 +22,7 @@ PyShark, ...) is used; the operating system only hands us the raw bytes.
 
 ```
 packet_parser.py   IPv4 / TCP / UDP header parsing from raw bytes (our own code)
+capture.py         getting the raw bytes from the OS (Windows: raw socket + SIO_RCVALL)
 tests/             test_parser.py: parser checks on hand-made bytes (no admin needed)
 ```
 
@@ -33,7 +34,14 @@ Parser tests (no capture, no admin needed):
 python tests/test_parser.py
 ```
 
-(the capture tool is added in later steps)
+Quick capture test, Windows (open PowerShell with "Run as administrator"):
+
+```
+python capture.py 10
+```
+
+Then open a website: 10 packets are printed with number, time, size, IPs, protocol and
+ports. (The full analyzer with filters and packet details is added in later steps.)
 
 ## How a packet is decoded
 

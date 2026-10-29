@@ -109,3 +109,23 @@ so it holds only A3 files; this log; a README skeleton; `.gitignore`.
 - `tests/test_parser.py`: 9 more checks (55 in total).
 
 **What we checked:** the tests pass.
+
+---
+
+## Step 6: packet capture on Windows
+
+**Our prompt:** "next"
+
+**AI output:**
+- `capture.py`: `WindowsCapture` opens a raw IPv4 socket (`SOCK_RAW`, `IPPROTO_IP`), binds it to
+  the local interface address, sets `IP_HDRINCL` (received packets include the IP header) and
+  switches the interface to receive-all mode with `ioctl(SIO_RCVALL, RCVALL_ON)`. Each `recv()`
+  returns one whole IPv4 packet starting at the IP header (link type `"raw"`), timestamped with
+  `time.time()`. The local address is found by "connecting" a UDP socket (no packet is sent).
+  A one-second timeout keeps Ctrl+C working; receive-all is switched off on exit; a clear
+  message asks for an Administrator terminal if permission is denied.
+- `python capture.py 10`: a quick test that captures 10 packets and prints number, time,
+  size, IPs, protocol and ports using our parser.
+
+**What we checked:** the AI could not run Windows itself (only a Linux shell), so the Windows
+test is done by us on Himanshu's laptop (result logged in the next step).
