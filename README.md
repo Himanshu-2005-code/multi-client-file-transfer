@@ -13,7 +13,7 @@ PyShark, ...) is used; the operating system only hands us the raw bytes.
 
 ## Requirements
 
-- Python 3.9 or newer, standard library only.
+- Python 3.9 or newer (tested with 3.10 to 3.13), standard library only: nothing to install.
 - Administrator rights: Windows needs an Administrator terminal, macOS and
   Linux need `sudo`. Capturing packets is a privileged operation.
 - Capture only on systems and networks you own or are authorized to analyze.
@@ -26,7 +26,8 @@ analyzer.py        the analyzer: numbering, timestamps, summary table
 capture.py         getting the raw bytes from the OS (Windows: raw socket + SIO_RCVALL;
                    macOS: BPF device /dev/bpf*; Linux: AF_PACKET socket)
 tests/             test_parser.py, test_capture.py, test_analyzer.py: checks on hand-made
-                   bytes (no admin needed)
+                   bytes (no admin needed); run_all.py runs them all
+AI_PROMPTS.md      every prompt given to the AI, word for word, and what it produced
 ```
 
 ## Running it
@@ -142,6 +143,19 @@ Text:
 HELLO SERVER
 ```
 
+## How the raw bytes are captured (`capture.py`)
+
+The OS gives us the bytes; everything after that is our code. Capturing needs
+administrator rights on every system.
+
+| System | Method | What each read gives |
+|---|---|---|
+| Windows | raw IPv4 socket bound to the interface's IP, `IP_HDRINCL`, then `ioctl(SIO_RCVALL, RCVALL_ON)` ("receive all") | one IPv4 packet, starting at the IP header |
+| macOS | a BPF device `/dev/bpfN` (what tcpdump and Wireshark use): `ioctl` `BIOCSETIF` (attach to `en0`), `BIOCIMMEDIATE`, `BIOCGBLEN`, `BIOCGDLT` | several packets, each after an 18-byte BPF header (timestamp, lengths), padded to 4 bytes |
+| Linux | `AF_PACKET` socket with `ETH_P_ALL` | one frame, starting at the Ethernet header |
+
+Each packet is timestamped when it is read (the BPF header's own timestamp on a Mac).
+
 ## How a packet is decoded
 
 **Link layer first** (`strip_link_layer`). A captured frame is [link header | IP datagram
@@ -203,7 +217,55 @@ payload contains: 6 = TCP, 17 = UDP; other protocols (e.g. 1 = ICMP) are shown w
 IP header only. The IP payload is taken from the end of the IP header up to the IP total
 length, so link-layer padding after the packet is not mistaken for data.
 
+## Testing
+
+`python tests/run_all.py` runs 133 checks without capturing (parser 55, capture 22,
+analyzer 56): every header field on hand-made bytes, bad and short inputs, Ethernet / VLAN /
+loopback headers, a BPF buffer, the Windows and macOS capture code against fake OS calls,
+filters, the detail view (including an empty payload) and the commands.
+
+| Where | Result |
+|---|---|
+| Linux (Python 3.11, 3.12, 3.13) | 133/133 checks; live capture on `eth0` (web traffic, TCP 443) and `lo` (UDP, TCP handshake, ICMP port unreachable) |
+| Himanshu's laptop, Linux VM (Python 3.10) | all checks pass; without sudo: "Permission denied: run with sudo." |
+| Windows (Administrator) | live run by us, see the report |
+| macOS (sudo) | live run by Divyansh, see the report |
+
+## Notes and limitations
+
+- **IPv4 only**, as the assignment asks: IPv6 and ARP frames are counted as skipped.
+- **Checksums are shown, not verified.**
+- **Packets larger than 1500 bytes** can appear: the OS hands the network card large TCP
+  chunks that the card splits into frames (segmentation offload), and we capture before that
+  split. Wireshark shows the same.
+- **Loopback on Linux** delivers each packet twice (sent and received); we keep one copy.
+- **Fragments**: a later fragment of a split IP datagram has no TCP/UDP header, so only its
+  IP header is decoded.
+- **Windows** raw sockets give no Ethernet header, so no MAC addresses are shown there.
+- Packets are kept in memory for the session; `clear` empties the list.
+
 ## Use of AI
 
-See [`AI_PROMPTS.md`](AI_PROMPTS.md): every prompt, word for word, and what the
-AI produced at each step.
+AI tool: Claude (Anthropic), in the Claude app. The work was done in 15 small steps, one
+prompt per step, one git commit per step (branch `a3`). Our prompts, word for word:
+
+| Step | Prompt | Result |
+|---|---|---|
+| 0 | Attached the A3 PDF: "this assignment 3 ok this is i am doing with my friend Divyansh Goel roll no. 2024201"; answers to the AI's questions ("ios and windows everything", "Yes, macOS (MacBook)", the submission rules, "do it on same repo i will invite divyansh", "New branch a3, A3 files only (Recommended)", "Small steps like A2", "tomorrow 23:59"); "is this in my syllabus"; attached L16-L18 slides: "chevk these" | 14-step plan; syllabus check |
+| 1 | "next" | branch `a3`, README skeleton, AI log |
+| 2 | "next" | IPv4 header parsing |
+| 3 | "next" | TCP header parsing |
+| 4 | "next" | UDP header parsing, automatic TCP/UDP detection |
+| 5 | "next" | link-layer headers (Ethernet, VLAN, Mac loopback) |
+| 6 | "next" | Windows capture (raw socket + SIO_RCVALL) |
+| 7 | "next" | macOS capture (BPF device) |
+| 8 | "next" | Linux capture (AF_PACKET) |
+| 9 | "next" | packet store, numbering, timestamps, summary table |
+| 10 | "next" | filters |
+| 11 | "next" | packet detail view |
+| 12 | "next" | interactive command line |
+| 13 | "next" | capture tests with fake OS calls, run_all.py, tests on Python 3.10-3.13 |
+| 14 | "next" | final README, report PDF, zip |
+
+Full details of each step (what was produced and what was checked) are in
+[`AI_PROMPTS.md`](AI_PROMPTS.md).

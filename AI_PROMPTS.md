@@ -271,3 +271,16 @@ quotes the original IP + UDP header and "HELLO SERVER".
 - Live capture on Linux was tested in steps 8, 11 and 12.
 - Still to be done by us: a live run on Windows (Administrator PowerShell) and on Divyansh's
   Mac (`sudo python3 analyzer.py`).
+
+---
+
+## Step 14: README, report and submission files
+
+**Our prompt:** "next"
+
+**AI output:** README completed (how the bytes are captured on each system, testing results,
+notes and limitations, AI usage table); the report `2024261_2024201_A3.pdf` (design, how each
+field is extracted from the bytes, capture on each system, sample outputs, testing, challenges,
+AI usage); `2024261_2024201_A3.zip` with all code, tests, README and this log.
+
+**What we checked:** the zip unpacks into a folder where `python tests/run_all.py` passes.
