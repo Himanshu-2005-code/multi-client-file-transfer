@@ -9,7 +9,7 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from analyzer import PacketStore, summary_line  # noqa: E402
+from analyzer import FilterError, PacketStore, filter_packets, parse_filter, summary_line  # noqa: E402
 
 failures = 0
 
@@ -72,7 +72,38 @@ def test_store():
     check("summary: ICMP has no ports ('-')", "ICMP" in line and line.count(" - ") >= 1)
 
 
+def numbers(store, text):
+    return [p.number for p in filter_packets(store.packets, parse_filter(text))]
+
+
+def test_filters():
+    # packets: 1 TCP 192.168.1.10:52344 -> 142.250.183.14:443 (SYN)
+    #          2 UDP 192.168.1.10:55000 -> 8.8.8.8:53
+    #          3 TCP 142.250.183.14:443 -> 192.168.1.10:52344 (data)
+    #          4 ICMP 192.168.1.10 -> 192.168.1.1
+    store = make_store()
+    check("no filter -> all 4", numbers(store, "") == [1, 2, 3, 4])
+    check("tcp -> 1, 3", numbers(store, "tcp") == [1, 3])
+    check("udp -> 2", numbers(store, "UDP") == [2])
+    check("ip 8.8.8.8 (either side) -> 2", numbers(store, "ip 8.8.8.8") == [2])
+    check("src 142.250.183.14 -> 3", numbers(store, "src 142.250.183.14") == [3])
+    check("dst 192.168.1.10 -> 3", numbers(store, "dst 192.168.1.10") == [3])
+    check("port 443 (either side) -> 1, 3", numbers(store, "port 443") == [1, 3])
+    check("sport 443 -> 3", numbers(store, "sport 443") == [3])
+    check("dport 53 -> 2", numbers(store, "dport 53") == [2])
+    check("combined: tcp src 192.168.1.10 dport 443 -> 1", numbers(store, "tcp src 192.168.1.10 dport 443") == [1])
+    check("combined with no match -> empty", numbers(store, "udp port 443") == [])
+    check("port filter never matches ICMP (no ports)", 4 not in numbers(store, "port 0"))
+    for bad in ("http", "port", "port abc", "port 70000", "src 300.1.1.1", "ip localhost"):
+        try:
+            parse_filter(bad)
+            check(f"bad filter '{bad}' rejected", False)
+        except FilterError:
+            check(f"bad filter '{bad}' rejected", True)
+
+
 if __name__ == "__main__":
     test_store()
+    test_filters()
     print("\nALL ANALYZER TESTS PASSED" if failures == 0 else f"\n{failures} TEST(S) FAILED")
     sys.exit(1 if failures else 0)

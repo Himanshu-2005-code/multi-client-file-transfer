@@ -187,3 +187,20 @@ each listed once.
 
 **What the AI checked (Linux, as root):** `analyzer.py 10` while fetching a web page printed a
 correct 10-row table (TCP to/from port 443).
+
+---
+
+## Step 10: packet filtering
+
+**Our prompt:** "next"
+
+**AI output:**
+- `analyzer.py`: filters written as words, all of which must match: `tcp` / `udp`; `ip <addr>`
+  (source or destination), `src <addr>`, `dst <addr>`; `port <n>` (source or destination),
+  `sport <n>`, `dport <n>`; e.g. `tcp src 192.168.1.10 dport 443`. `parse_filter()` turns the
+  words into conditions and rejects bad input (unknown word, missing value, invalid IPv4
+  address checked with `ipaddress`, port outside 0-65535); `matches()` tests one packet
+  (protocols without ports, like ICMP, never match a port filter); `filter_packets()`.
+- `tests/test_analyzer.py`: 18 more checks (26 in total): each filter, combinations, and bad filters.
+
+**What we checked:** the tests pass.

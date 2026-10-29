@@ -8,6 +8,7 @@ Step 9 version:  python analyzer.py 20     captures 20 packets, prints the summa
 (needs Administrator on Windows, sudo on Mac/Linux)
 """
 
+import ipaddress
 import sys
 from datetime import datetime
 
@@ -71,6 +72,83 @@ class PacketStore:
         if 1 <= number <= len(self.packets):
             return self.packets[number - 1]
         return None
+
+
+# --- Filtering --------------------------------------------------------------
+# A filter is a list of conditions; a packet is shown only if it matches ALL
+# of them. Written as words, e.g.  "tcp dport 443"  or  "udp ip 8.8.8.8".
+FILTER_HELP = """Filter words (combine any of them; all must match):
+  tcp | udp            protocol
+  ip <addr>            source OR destination IP     src <addr> / dst <addr>
+  port <n>             source OR destination port   sport <n>  / dport <n>
+Examples:  tcp      udp port 53      src 192.168.1.10 tcp dport 443"""
+
+IP_WORDS = ("ip", "src", "dst")
+PORT_WORDS = ("port", "sport", "dport")
+
+
+class FilterError(Exception):
+    pass
+
+
+def parse_filter(text):
+    """'tcp dport 443' -> [('proto', 'TCP'), ('dport', 443)]; raises FilterError."""
+    words = text.lower().split()
+    conditions = []
+    i = 0
+    while i < len(words):
+        w = words[i]
+        if w in ("tcp", "udp"):
+            conditions.append(("proto", w.upper()))
+            i += 1
+            continue
+        if w not in IP_WORDS + PORT_WORDS:
+            raise FilterError(f"unknown filter word '{w}'")
+        if i + 1 >= len(words):
+            raise FilterError(f"'{w}' needs a value")
+        value = words[i + 1]
+        if w in IP_WORDS:
+            try:
+                ipaddress.IPv4Address(value)          # only checks the address is valid
+            except ValueError:
+                raise FilterError(f"'{value}' is not an IPv4 address")
+        else:
+            if not value.isdigit() or not 0 <= int(value) <= 65535:
+                raise FilterError(f"'{value}' is not a port number (0-65535)")
+            value = int(value)
+        conditions.append((w, value))
+        i += 2
+    return conditions
+
+
+def matches(pkt, conditions):
+    """True if the packet satisfies every condition."""
+    if pkt.decoded is None:
+        return not conditions                # undecodable packets only show unfiltered
+    ip, t = pkt.ip, pkt.transport
+    for kind, value in conditions:
+        if kind == "proto" and pkt.decoded["transport"] != value:
+            return False
+        if kind == "ip" and value not in (ip["src"], ip["dst"]):
+            return False
+        if kind == "src" and ip["src"] != value:
+            return False
+        if kind == "dst" and ip["dst"] != value:
+            return False
+        if kind in PORT_WORDS:
+            if t is None:                        # e.g. ICMP has no ports
+                return False
+            if kind == "port" and value not in (t["src_port"], t["dst_port"]):
+                return False
+            if kind == "sport" and t["src_port"] != value:
+                return False
+            if kind == "dport" and t["dst_port"] != value:
+                return False
+    return True
+
+
+def filter_packets(packets, conditions):
+    return [p for p in packets if matches(p, conditions)]
 
 
 SUMMARY_HEADER = (f"{'No.':>5}  {'Time':<12}  {'Source':<15}  {'Destination':<15}  "

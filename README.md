@@ -64,6 +64,20 @@ sudo python3 capture.py 10 lo       # Linux loopback
 Then open a website: 10 packets are printed with number, time, size, IPs, protocol and
 ports. (The full analyzer with filters and packet details is added in later steps.)
 
+## Filters
+
+Words that can be combined; a packet is listed only if it matches all of them:
+
+| Filter | Shows packets where |
+|---|---|
+| `tcp`, `udp` | the IP payload is TCP / UDP |
+| `ip <addr>` | source **or** destination IP is `<addr>` |
+| `src <addr>`, `dst <addr>` | source / destination IP is `<addr>` |
+| `port <n>` | source **or** destination port is `<n>` |
+| `sport <n>`, `dport <n>` | source / destination port is `<n>` |
+
+Examples: `tcp`, `udp port 53`, `ip 8.8.8.8`, `tcp src 192.168.1.10 dport 443`.
+
 ## How a packet is decoded
 
 **Link layer first** (`strip_link_layer`). A captured frame is [link header | IP datagram
