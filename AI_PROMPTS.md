@@ -204,3 +204,25 @@ correct 10-row table (TCP to/from port 443).
 - `tests/test_analyzer.py`: 18 more checks (26 in total): each filter, combinations, and bad filters.
 
 **What we checked:** the tests pass.
+
+---
+
+## Step 11: packet detail view
+
+**Our prompt:** "next"
+
+**AI output:**
+- `analyzer.py`: `detail_text(pkt)` shows one packet in the format of the assignment's sample:
+  number, time, length; the Ethernet header when there is one (MACs, EtherType); every IP header
+  field; the TCP header (ports, sequence / acknowledgment numbers, header length, flags by name
+  and as hex, window, checksum, urgent pointer, payload length) or the UDP header (ports, length,
+  checksum, payload length); the raw bytes of each header ("Header bytes", to show where each
+  field comes from); and the payload as a hex dump (offset | hex | text) and as text, with
+  unprintable bytes as "." and long payloads cut after 512 bytes. An empty payload is shown as
+  "(empty: payload length 0 bytes)" instead of being interpreted. Non-TCP/UDP packets (e.g. ICMP)
+  show the IP header and their data.
+- `tests/test_analyzer.py`: 21 more checks (47 in total) on TCP, SYN (empty payload), UDP and ICMP details.
+
+**What the AI checked (Linux, as root):** captured a real UDP datagram "HELLO SERVER" on
+loopback and printed its details: IP header (total length 40, TTL 64, protocol UDP 17),
+UDP header (length 20 = 8 + 12), payload `48 45 4C 4C 4F 20 53 45 52 56 45 52` / HELLO SERVER.

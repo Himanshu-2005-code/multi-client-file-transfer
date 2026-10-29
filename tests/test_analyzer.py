@@ -9,7 +9,8 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from analyzer import FilterError, PacketStore, filter_packets, parse_filter, summary_line  # noqa: E402
+from analyzer import (FilterError, PacketStore, detail_text, filter_packets,  # noqa: E402
+                      parse_filter, summary_line)
 
 failures = 0
 
@@ -102,8 +103,32 @@ def test_filters():
             check(f"bad filter '{bad}' rejected", True)
 
 
+def test_detail():
+    store = make_store()
+    d = detail_text(store.get(3))        # TCP 443 -> 52344, PSH+ACK, "HELLO SERVER"
+    for s in ("Packet #3", "Packet Length:", "IP Header", "Version:              4",
+              "Header Length:        20 bytes", "TTL:                  64", "Protocol:             TCP (6)",
+              "Source IP:            142.250.183.14", "TCP Header", "Source Port:          443",
+              "Sequence Number:      1000", "Acknowledgment:       2000", "Flags:                ACK, PSH (0x18)",
+              "Window Size:          65535", "Payload Length:       12 bytes",
+              "48 45 4C 4C 4F 20 53 45 52 56 45 52", "HELLO SERVER", "Source MAC:"):
+        check(f"TCP detail shows {s!r}", s in d)
+
+    d = detail_text(store.get(1))        # SYN, no data
+    check("SYN detail: payload length 0, empty payload shown",
+          "Payload Length:       0 bytes" in d and "(empty: payload length 0 bytes)" in d and "Hex:" not in d)
+
+    d = detail_text(store.get(2))        # UDP 55000 -> 53 "dns?"
+    check("UDP detail: header fields and payload",
+          all(s in d for s in ("UDP Header", "Length:               12 bytes", "Payload Length:       4 bytes", "dns?")))
+
+    d = detail_text(store.get(4))        # ICMP
+    check("ICMP detail: IP header, no transport header", "IP Header" in d and "not TCP or UDP" in d)
+
+
 if __name__ == "__main__":
     test_store()
     test_filters()
+    test_detail()
     print("\nALL ANALYZER TESTS PASSED" if failures == 0 else f"\n{failures} TEST(S) FAILED")
     sys.exit(1 if failures else 0)

@@ -172,6 +172,104 @@ def print_summary(packets):
         print(summary_line(pkt))
 
 
+# --- Detail view ------------------------------------------------------------
+MAX_PAYLOAD_SHOWN = 512     # longer payloads are cut, with a note
+
+
+def hex_bytes(data):
+    """b'HE' -> '48 45'"""
+    return " ".join(f"{b:02X}" for b in data)
+
+
+def hex_dump(data, width=16):
+    """Offset | hex bytes | text, 16 bytes per row (unprintable bytes shown as '.')."""
+    rows = []
+    for off in range(0, len(data), width):
+        chunk = data[off:off + width]
+        text = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        rows.append(f"  {off:04x}  {hex_bytes(chunk):<{width * 3}} {text}")
+    return "\n".join(rows)
+
+
+def field(name, value):
+    return f"{name + ':':<22}{value}"
+
+
+def detail_text(pkt):
+    """Everything about one packet, as in the sample output of the assignment."""
+    out = [f"Packet #{pkt.number}", field("Time", pkt.time_str),
+           field("Packet Length", f"{pkt.length} bytes")]
+
+    if pkt.link.get("type") == "ethernet":
+        out += ["", "Ethernet Header", "-" * 32,
+                field("Source MAC", pkt.link["src_mac"]),
+                field("Destination MAC", pkt.link["dst_mac"]),
+                field("EtherType", f"0x{pkt.link['ethertype']:04X} (IPv4)")]
+
+    if pkt.decoded is None:
+        out += ["", f"Could not decode the IP packet: {pkt.error}",
+                "", "Raw bytes", "-" * 32, hex_dump(pkt.ip_bytes[:MAX_PAYLOAD_SHOWN])]
+        return "\n".join(out)
+
+    ip = pkt.ip
+    flags = [n for n, on in (("DF", ip["dont_fragment"]), ("MF", ip["more_fragments"])) if on]
+    out += ["", "IP Header", "-" * 32,
+            field("Version", ip["version"]),
+            field("Header Length", f"{ip['header_length']} bytes (IHL {ip['header_length'] // 4})"),
+            field("Type of Service", f"0x{ip['tos']:02X}"),
+            field("Total Length", f"{ip['total_length']} bytes"),
+            field("Identification", ip["identification"]),
+            field("Flags", ", ".join(flags) if flags else "none"),
+            field("Fragment Offset", ip["fragment_offset"]),
+            field("TTL", ip["ttl"]),
+            field("Protocol", f"{ip['protocol_name']} ({ip['protocol']})"),
+            field("Header Checksum", f"0x{ip['checksum']:04X}"),
+            field("Source IP", ip["src"]),
+            field("Destination IP", ip["dst"]),
+            field("Header bytes", hex_bytes(pkt.ip_bytes[:ip["header_length"]]))]
+
+    proto = pkt.decoded["transport"]
+    if proto == "TCP":
+        tcp = pkt.decoded["tcp"]
+        out += ["", "TCP Header", "-" * 32,
+                field("Source Port", tcp["src_port"]),
+                field("Destination Port", tcp["dst_port"]),
+                field("Sequence Number", tcp["seq"]),
+                field("Acknowledgment", tcp["ack"]),
+                field("Header Length", f"{tcp['header_length']} bytes"),
+                field("Flags", f"{', '.join(tcp['flag_names']) or 'none'} (0x{tcp['flags']:02X})"),
+                field("Window Size", tcp["window"]),
+                field("Checksum", f"0x{tcp['checksum']:04X}"),
+                field("Urgent Pointer", tcp["urgent_pointer"]),
+                field("Payload Length", f"{tcp['payload_length']} bytes"),
+                field("Header bytes", hex_bytes(pkt.decoded["ip_payload"][:tcp["header_length"]]))]
+        payload = tcp["payload"]
+    elif proto == "UDP":
+        udp = pkt.decoded["udp"]
+        out += ["", "UDP Header", "-" * 32,
+                field("Source Port", udp["src_port"]),
+                field("Destination Port", udp["dst_port"]),
+                field("Length", f"{udp['length']} bytes"),
+                field("Checksum", f"0x{udp['checksum']:04X}"),
+                field("Payload Length", f"{udp['payload_length']} bytes"),
+                field("Header bytes", hex_bytes(pkt.decoded["ip_payload"][:8]))]
+        payload = udp["payload"]
+    else:
+        out += ["", f"({ip['protocol_name']}: not TCP or UDP, so no transport header is decoded)"]
+        payload = pkt.decoded["ip_payload"]
+
+    out += ["", "Payload", "-" * 32]
+    if not payload:
+        out.append("(empty: payload length 0 bytes)")
+    else:
+        shown = payload[:MAX_PAYLOAD_SHOWN]
+        text = "".join(chr(b) if 32 <= b < 127 else "." for b in shown)
+        out += ["Hex:", hex_dump(shown), "", "Text:", text]
+        if len(payload) > len(shown):
+            out.append(f"... ({len(payload) - len(shown)} more bytes not shown)")
+    return "\n".join(out)
+
+
 def capture_into(store, cap, count):
     """Capture until `count` IPv4 packets are stored, or Ctrl+C."""
     added = 0

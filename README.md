@@ -78,6 +78,48 @@ Words that can be combined; a packet is listed only if it matches all of them:
 
 Examples: `tcp`, `udp port 53`, `ip 8.8.8.8`, `tcp src 192.168.1.10 dport 443`.
 
+## Packet details
+
+Selecting a packet shows its Ethernet header (if any), every IPv4 header field, the TCP or
+UDP header, the raw bytes of each header, and the payload as a hex dump and as text. A
+packet without application data shows `Payload Length: 0 bytes` and
+`(empty: payload length 0 bytes)`. Example (a real UDP datagram on loopback):
+
+```
+Packet #1
+Time:                 19:35:07.054
+Packet Length:        54 bytes
+...
+IP Header
+--------------------------------
+Version:              4
+Header Length:        20 bytes (IHL 5)
+Total Length:         40 bytes
+TTL:                  64
+Protocol:             UDP (17)
+Header Checksum:      0xB50E
+Source IP:            127.0.0.1
+Destination IP:       127.0.0.1
+Header bytes:         45 00 00 28 87 B4 40 00 40 11 B5 0E 7F 00 00 01 7F 00 00 01
+
+UDP Header
+--------------------------------
+Source Port:          53448
+Destination Port:     9999
+Length:               20 bytes
+Checksum:             0xFE27
+Payload Length:       12 bytes
+Header bytes:         D0 C8 27 0F 00 14 FE 27
+
+Payload
+--------------------------------
+Hex:
+  0000  48 45 4C 4C 4F 20 53 45 52 56 45 52              HELLO SERVER
+
+Text:
+HELLO SERVER
+```
+
 ## How a packet is decoded
 
 **Link layer first** (`strip_link_layer`). A captured frame is [link header | IP datagram
