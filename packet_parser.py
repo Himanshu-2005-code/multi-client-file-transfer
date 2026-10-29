@@ -76,3 +76,53 @@ def parse_ipv4(data):
         "dst": ipv4_to_str(dst),
         "options": data[20:header_length],
     }
+
+
+# TCP flag bits in byte 13, highest bit first: the "C E U A P R S F" row of the
+# lecture slide (L13, "TCP segment structure").
+TCP_FLAGS = [(0x80, "CWR"), (0x40, "ECE"), (0x20, "URG"), (0x10, "ACK"),
+             (0x08, "PSH"), (0x04, "RST"), (0x02, "SYN"), (0x01, "FIN")]
+
+
+def parse_tcp(segment):
+    """
+    Decode a TCP segment: `segment` is the IP payload (bytes after the IP header).
+
+    Layout (RFC 793; lecture L13, "TCP segment structure"):
+
+      bytes 0-1   source port          bytes 2-3   destination port
+      bytes 4-7   sequence number
+      bytes 8-11  acknowledgment number
+      byte 12     header length (high 4 bits, in 32-bit words) | reserved
+      byte 13     flags: CWR ECE URG ACK PSH RST SYN FIN (one bit each)
+      bytes 14-15 receive window (rwnd)
+      bytes 16-17 checksum             bytes 18-19 urgent pointer
+      options (if header length > 20), then the application data (payload)
+    """
+    if len(segment) < 20:
+        raise ParseError(f"TCP header needs at least 20 bytes, got {len(segment)}")
+
+    # H = 2 bytes, I = 4 bytes, B = 1 byte: 2+2+4+4+1+1+2+2+2 = 20 bytes
+    (src_port, dst_port, seq, ack, offset_byte, flags,
+     window, checksum, urgent) = struct.unpack("!HHIIBBHHH", segment[:20])
+
+    header_length = (offset_byte >> 4) * 4     # "data offset": 32-bit words -> bytes
+    if header_length < 20 or len(segment) < header_length:
+        raise ParseError(f"bad TCP header length {header_length}")
+
+    payload = segment[header_length:]
+    return {
+        "src_port": src_port,
+        "dst_port": dst_port,
+        "seq": seq,
+        "ack": ack,
+        "header_length": header_length,
+        "flags": flags,
+        "flag_names": [name for bit, name in TCP_FLAGS if flags & bit],
+        "window": window,
+        "checksum": checksum,
+        "urgent_pointer": urgent,
+        "options": segment[20:header_length],
+        "payload": payload,
+        "payload_length": len(payload),
+    }

@@ -56,6 +56,22 @@ if the header length is more than 20.
 All multi-byte fields are in network byte order (big-endian), hence `!` in the
 `struct.unpack` format `"!BBHHHBBH4s4s"` (B = 1 byte, H = 2 bytes, 4s = 4 raw bytes).
 
+**TCP header** (`parse_tcp`, lecture L13 "TCP segment structure"): 20 bytes, plus options
+if the header length is more than 20. Format `"!HHIIBBHHH"` (I = 4 bytes).
+
+| Bytes | Field | How it is extracted |
+|---|---|---|
+| 0-1 | source port | 2 bytes |
+| 2-3 | destination port | 2 bytes |
+| 4-7 | sequence number | 4 bytes |
+| 8-11 | acknowledgment number | 4 bytes |
+| 12 | header length (high 4 bits) | `(byte >> 4) * 4` bytes |
+| 13 | flags CWR ECE URG ACK PSH RST SYN FIN | one bit each, tested with `byte & 0x80`, ..., `byte & 0x01` |
+| 14-15 | window (rwnd) | 2 bytes |
+| 16-17 | checksum | 2 bytes |
+| 18-19 | urgent pointer | 2 bytes |
+| header length .. end | payload | its length = segment length - header length (0 for a bare SYN or ACK) |
+
 ## Use of AI
 
 See [`AI_PROMPTS.md`](AI_PROMPTS.md): every prompt, word for word, and what the

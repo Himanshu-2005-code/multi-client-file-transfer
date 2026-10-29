@@ -57,3 +57,20 @@ so it holds only A3 files; this log; a README skeleton; `.gitignore`.
   (`45 00 00 3c ...`), a header with options, and bad inputs.
 
 **What we checked:** the tests pass; each field matches the L17 "IP Datagram format" slide.
+
+---
+
+## Step 3: TCP header parsing
+
+**Our prompt:** "next"
+
+**AI output:**
+- `packet_parser.py`: `parse_tcp()` decodes the first 20 bytes of the IP payload with
+  `struct.unpack("!HHIIBBHHH")`: ports, sequence and acknowledgment numbers (4 bytes each),
+  header length from the high 4 bits of byte 12 (x 4 bytes), the eight flags of byte 13
+  tested bit by bit (CWR ECE URG ACK PSH RST SYN FIN), window, checksum, urgent pointer,
+  options, and the payload (everything after the header) with its length.
+- `tests/test_parser.py`: 16 more checks (33 in total): an ACK+PSH segment carrying "HELLO",
+  a SYN with options and no data (payload length 0), all eight flags, and bad inputs.
+
+**What we checked:** the tests pass; the fields match the L13 "TCP segment structure" slide.
