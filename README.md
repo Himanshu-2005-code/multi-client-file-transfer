@@ -20,15 +20,41 @@ PyShark, ...) is used; the operating system only hands us the raw bytes.
 
 ## Project structure
 
-(added as the code is written)
+```
+packet_parser.py   IPv4 / TCP / UDP header parsing from raw bytes (our own code)
+tests/             test_parser.py: parser checks on hand-made bytes (no admin needed)
+```
 
 ## Running it
 
-(added as the code is written)
+Parser tests (no capture, no admin needed):
+
+```
+python tests/test_parser.py
+```
+
+(the capture tool is added in later steps)
 
 ## How a packet is decoded
 
-(added as the code is written)
+**IPv4 header** (`parse_ipv4`, lecture L17 "IP Datagram format"): 20 bytes, plus options
+if the header length is more than 20.
+
+| Bytes | Field | How it is extracted |
+|---|---|---|
+| 0 | version (4 bits), IHL (4 bits) | `byte >> 4`, `byte & 0x0F`; header length = IHL x 4 bytes |
+| 1 | type of service | 1 byte |
+| 2-3 | total length | 2 bytes, big-endian (header + payload) |
+| 4-5 | identification | 2 bytes |
+| 6-7 | flags (3 bits), fragment offset (13 bits) | `value >> 13`, `value & 0x1FFF` |
+| 8 | TTL | 1 byte |
+| 9 | protocol | 1 byte: 6 = TCP, 17 = UDP |
+| 10-11 | header checksum | 2 bytes |
+| 12-15 | source IP | 4 bytes, printed as a.b.c.d |
+| 16-19 | destination IP | 4 bytes |
+
+All multi-byte fields are in network byte order (big-endian), hence `!` in the
+`struct.unpack` format `"!BBHHHBBH4s4s"` (B = 1 byte, H = 2 bytes, 4s = 4 raw bytes).
 
 ## Use of AI
 

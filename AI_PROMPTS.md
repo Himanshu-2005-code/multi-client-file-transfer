@@ -39,3 +39,21 @@ capture mechanics (raw sockets, BPF) are programming tools, not syllabus.
 so it holds only A3 files; this log; a README skeleton; `.gitignore`.
 
 **What we checked:** the branch contains only the A3 files.
+
+---
+
+## Step 2: IPv4 header parsing
+
+**Our prompt:** "next"
+
+**AI output:**
+- `packet_parser.py`: `parse_ipv4()` decodes the first 20 bytes with
+  `struct.unpack("!BBHHHBBH4s4s")` (network byte order): version and header length from
+  byte 0 (`>> 4` and `& 0x0F`, header length = IHL x 4), total length, identification,
+  flags and fragment offset (`>> 13`, `& 0x1FFF`), TTL, protocol (6 = TCP, 17 = UDP),
+  checksum, source and destination IP; options when IHL > 5. Rejects data shorter than
+  20 bytes, non-IPv4 versions and IHL < 5.
+- `tests/test_parser.py`: 17 checks on a real header written out byte by byte
+  (`45 00 00 3c ...`), a header with options, and bad inputs.
+
+**What we checked:** the tests pass; each field matches the L17 "IP Datagram format" slide.
