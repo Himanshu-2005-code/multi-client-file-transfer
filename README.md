@@ -23,7 +23,7 @@ PyShark, ...) is used; the operating system only hands us the raw bytes.
 ```
 packet_parser.py   IPv4 / TCP / UDP header parsing from raw bytes (our own code)
 capture.py         getting the raw bytes from the OS (Windows: raw socket + SIO_RCVALL;
-                   macOS: BPF device /dev/bpf*)
+                   macOS: BPF device /dev/bpf*; Linux: AF_PACKET socket)
 tests/             test_parser.py, test_capture.py: checks on hand-made bytes (no admin needed)
 ```
 
@@ -42,11 +42,13 @@ Quick capture test, Windows (open PowerShell with "Run as administrator"):
 python capture.py 10
 ```
 
-Mac (Terminal; `en0` is usually Wi-Fi, chosen automatically from the default route):
+Mac or Linux (Terminal; the interface of the default route is chosen automatically,
+e.g. `en0` = Wi-Fi on a Mac):
 
 ```
 sudo python3 capture.py 10
-sudo python3 capture.py 10 lo0      # loopback (127.0.0.1) instead
+sudo python3 capture.py 10 lo0      # Mac loopback (127.0.0.1) instead
+sudo python3 capture.py 10 lo       # Linux loopback
 ```
 
 Then open a website: 10 packets are printed with number, time, size, IPs, protocol and

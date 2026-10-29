@@ -149,3 +149,22 @@ test is done by us on Himanshu's laptop (result logged in the next step).
   timestamps, and BPF -> Ethernet -> IPv4 -> UDP decoding end to end).
 
 **What we checked:** the tests pass; the Mac run itself is done by Divyansh on his MacBook.
+
+---
+
+## Step 8: packet capture on Linux
+
+**Our prompt:** "next"
+
+**AI output:**
+- `capture.py`: `LinuxCapture` opens an `AF_PACKET` raw socket for all protocols
+  (`htons(ETH_P_ALL)`), bound to the default-route interface (from `/proc/net/route`) or the one
+  given. Frames start with the Ethernet header (loopback too, with zero MAC addresses); the
+  interface type in `/sys/class/net/<if>/type` tells raw-IP interfaces apart. On loopback each
+  packet is delivered twice (outgoing and incoming), so the outgoing copy is dropped.
+
+**What the AI checked (Linux, as root):** `capture.py 8` on `eth0` while fetching a web page:
+8 TCP packets to/from port 443 with correct addresses and ports. `capture.py 4 lo` while
+sending two UDP datagrams and opening a TCP connection on 127.0.0.1: 2 UDP packets
+(54 bytes = 14 Ethernet + 20 IP + 8 UDP + 12 bytes "HELLO SERVER") and the SYN / SYN-ACK,
+each listed once.

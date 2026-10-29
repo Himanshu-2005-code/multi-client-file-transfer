@@ -12,7 +12,7 @@ Each capture object has:
 Capturing needs Administrator (Windows) or root (sudo, Mac/Linux).
 
 Quick test:  python capture.py 10            (Windows, Administrator terminal)
-             sudo python3 capture.py 10      (Mac)
+             sudo python3 capture.py 10      (Mac / Linux)
 """
 
 import collections
@@ -178,13 +178,71 @@ class MacCapture:
         os.close(self.fd)
 
 
+# --- Linux: packet socket ------------------------------------------------------
+ETH_P_ALL = 0x0003          # "all protocols" (from <linux/if_ether.h>)
+PACKET_OUTGOING = 4         # packet type: sent by this host
+ARPHRD_ETHER, ARPHRD_LOOPBACK, ARPHRD_NONE = 1, 772, 65534
+
+
+def default_linux_interface():
+    """The interface of the default route (destination 00000000 in /proc/net/route)."""
+    try:
+        with open("/proc/net/route") as f:
+            for line in f.readlines()[1:]:
+                fields = line.split()
+                if fields[1] == "00000000":
+                    return fields[0]
+    except OSError:
+        pass
+    return "lo"
+
+
+class LinuxCapture:
+    """
+    Linux: an AF_PACKET raw socket receives a copy of every frame on an
+    interface, sent or received, starting at the link-layer header. Ethernet
+    and loopback interfaces both give a 14-byte Ethernet header
+    (loopback with zero MAC addresses); VPN-style interfaces give raw IP.
+    """
+
+    def __init__(self, interface=None):
+        self.interface = interface or default_linux_interface()
+        try:
+            # socket.htons: the protocol number must be in network byte order
+            self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(ETH_P_ALL))
+        except PermissionError:
+            sys.exit("[!] Permission denied: run with sudo.")
+        self.sock.bind((self.interface, 0))
+        with open(f"/sys/class/net/{self.interface}/type") as f:
+            hw_type = int(f.read())
+        self.link_type = "raw" if hw_type == ARPHRD_NONE else "ethernet"
+        self.sock.settimeout(1.0)
+        self.description = f"Linux packet socket on {self.interface} ({self.link_type})"
+
+    def read(self):
+        try:
+            data, addr = self.sock.recvfrom(65535)
+        except socket.timeout:
+            return None
+        # On loopback every packet is seen twice (once going out, once coming
+        # in); keep only the incoming copy so each packet is listed once.
+        if self.interface == "lo" and addr[2] == PACKET_OUTGOING:
+            return None
+        return time.time(), data
+
+    def close(self):
+        self.sock.close()
+
+
 def open_capture(local_ip=None, interface=None):
     """Open the capture method for this operating system."""
     if sys.platform == "win32":
         return WindowsCapture(local_ip)
     if sys.platform == "darwin":
         return MacCapture(interface)
-    sys.exit(f"[!] Capture on {sys.platform} is not supported yet.")
+    if sys.platform.startswith("linux"):
+        return LinuxCapture(interface)
+    sys.exit(f"[!] Capture on {sys.platform} is not supported.")
 
 
 def _quick_test(count):
