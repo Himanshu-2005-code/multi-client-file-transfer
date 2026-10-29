@@ -247,3 +247,27 @@ UDP datagram and a TCP connection with data ran on 127.0.0.1: `capture 6`, `list
 `filter tcp dport 9998` (3 of 6), `filter udp` (1 of 6), `show 2`. Packet 2 was a real ICMP
 "port unreachable" (type 3, code 3): nothing listened on UDP port 9999, and the ICMP message
 quotes the original IP + UDP header and "HELLO SERVER".
+
+---
+
+## Step 13: testing on every platform we can reach
+
+**Our prompt:** "next"
+
+**AI output:**
+- `tests/test_capture.py`: the Windows and macOS capture classes now also run against FAKE
+  operating-system calls, so their logic is checked on any computer: Windows (raw socket opened,
+  bound to the interface IP, `IP_HDRINCL` set, receive-all switched on and off, packets and
+  timeouts) and macOS (busy `/dev/bpf0` skipped, `BIOCSETIF` on `en0`, immediate mode, link
+  type from `BIOCGDLT`, two packets from one read, nothing to read). The four macOS ioctl
+  numbers are re-derived from the `_IOR` / `_IOW` macro formula. 22 capture checks in total.
+- `tests/run_all.py`: runs all test files and prints the totals (133 checks).
+
+**What was checked:**
+- All 133 checks pass with Python 3.11, 3.12 and 3.13 (AI's Linux shell).
+- On Himanshu's laptop (its Linux VM, Python 3.10), cloned from GitHub: the parser (55),
+  capture (6, the version before this step) and analyzer (56) checks pass; without sudo the
+  analyzer stops with "Permission denied: run with sudo."
+- Live capture on Linux was tested in steps 8, 11 and 12.
+- Still to be done by us: a live run on Windows (Administrator PowerShell) and on Divyansh's
+  Mac (`sudo python3 analyzer.py`).

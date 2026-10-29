@@ -78,10 +78,11 @@ analyzer> show 1
 Tests (no capture, no admin needed):
 
 ```
-python tests/test_parser.py
-python tests/test_capture.py
-python tests/test_analyzer.py
+python tests/run_all.py            # all of them: 133 checks
 ```
+
+`test_capture.py` also runs the Windows and macOS capture code against fake
+operating-system calls, so that logic is checked on any computer.
 
 `python capture.py 10` is a minimal capture test that prints 10 packets, one line each.
 
