@@ -22,9 +22,11 @@ PyShark, ...) is used; the operating system only hands us the raw bytes.
 
 ```
 packet_parser.py   IPv4 / TCP / UDP header parsing from raw bytes (our own code)
+analyzer.py        the analyzer: numbering, timestamps, summary table
 capture.py         getting the raw bytes from the OS (Windows: raw socket + SIO_RCVALL;
                    macOS: BPF device /dev/bpf*; Linux: AF_PACKET socket)
-tests/             test_parser.py, test_capture.py: checks on hand-made bytes (no admin needed)
+tests/             test_parser.py, test_capture.py, test_analyzer.py: checks on hand-made
+                   bytes (no admin needed)
 ```
 
 ## Running it
@@ -34,6 +36,14 @@ Parser tests (no capture, no admin needed):
 ```
 python tests/test_parser.py
 python tests/test_capture.py
+python tests/test_analyzer.py
+```
+
+Capture 20 packets and print the summary table (Windows: Administrator terminal;
+Mac/Linux: add `sudo`):
+
+```
+python analyzer.py 20
 ```
 
 Quick capture test, Windows (open PowerShell with "Run as administrator"):

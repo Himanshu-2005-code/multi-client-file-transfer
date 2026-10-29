@@ -168,3 +168,22 @@ test is done by us on Himanshu's laptop (result logged in the next step).
 sending two UDP datagrams and opening a TCP connection on 127.0.0.1: 2 UDP packets
 (54 bytes = 14 Ethernet + 20 IP + 8 UDP + 12 bytes "HELLO SERVER") and the SYN / SYN-ACK,
 each listed once.
+
+---
+
+## Step 9: packet store and summary table
+
+**Our prompt:** "next"
+
+**AI output:**
+- `analyzer.py`: `CapturedPacket` keeps each IPv4 packet's number (1, 2, 3, ... in capture
+  order), timestamp, size (captured length) and raw bytes, and decodes it once with our parser.
+  `PacketStore` numbers the packets and counts skipped non-IPv4 frames (IPv6, ARP).
+  `summary_line()` / `print_summary()` print the summary table: No., Time, Source,
+  Destination, Protocol, Source port, Destination port, Length ("-" for protocols without
+  ports, e.g. ICMP). `python analyzer.py 20` captures 20 packets and prints the table.
+- `tests/test_analyzer.py`: 8 checks with hand-made frames (numbering, ARP skipped, sizes,
+  timestamps, TCP / UDP / ICMP summary lines).
+
+**What the AI checked (Linux, as root):** `analyzer.py 10` while fetching a web page printed a
+correct 10-row table (TCP to/from port 443).
