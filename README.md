@@ -37,6 +37,15 @@ python tests/test_parser.py
 
 ## How a packet is decoded
 
+**Link layer first** (`strip_link_layer`). A captured frame is [link header | IP datagram
+| ...] (encapsulation). What the link header is depends on the system:
+
+| Captured on | Before the IP header | Handling |
+|---|---|---|
+| Windows (raw socket) | nothing | bytes start at the IP header |
+| Mac Wi-Fi/Ethernet, Linux | Ethernet header, 14 bytes: destination MAC (6), source MAC (6), EtherType (2) | EtherType 0x0800 = IPv4 -> skip 14 bytes (18 with a VLAN tag); IPv6 (0x86DD) and ARP (0x0806) are skipped |
+| Mac loopback (lo0) | 4-byte address family (little-endian) | 2 = IPv4 -> skip 4 bytes |
+
 **IPv4 header** (`parse_ipv4`, lecture L17 "IP Datagram format"): 20 bytes, plus options
 if the header length is more than 20.
 

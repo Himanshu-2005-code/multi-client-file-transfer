@@ -92,3 +92,20 @@ so it holds only A3 files; this log; a README skeleton; `.gitignore`.
   payload, bad UDP inputs, and whole packets detected as TCP, UDP and ICMP.
 
 **What we checked:** the tests pass.
+
+---
+
+## Step 5: link-layer header before the IP header
+
+**Our prompt:** "next"
+
+**AI output:**
+- `packet_parser.py`: `strip_link_layer(frame, link_type)` removes what comes before the IP
+  header, which depends on how the bytes were captured: `"raw"` (Windows raw socket, already
+  at the IP header), `"ethernet"` (Mac and Linux: 14 bytes = destination MAC, source MAC,
+  EtherType; 0x0800 = IPv4; an 802.1Q VLAN tag adds 4 bytes), `"null"` (Mac loopback: 4-byte
+  address family, 2 = IPv4). Frames that are not IPv4 (IPv6, ARP) are returned as skipped with
+  the reason. (The Mac's extra BPF record header is handled with the Mac capture in step 7.)
+- `tests/test_parser.py`: 9 more checks (55 in total).
+
+**What we checked:** the tests pass.

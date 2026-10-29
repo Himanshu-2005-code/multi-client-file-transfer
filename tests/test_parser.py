@@ -8,7 +8,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from packet_parser import ParseError, parse_ipv4, parse_packet, parse_tcp, parse_udp  # noqa: E402
+from packet_parser import (ParseError, parse_ipv4, parse_packet, parse_tcp, parse_udp,  # noqa: E402
+                           strip_link_layer)
 
 failures = 0
 
@@ -159,10 +160,41 @@ def test_packet():
     check("later fragment (offset > 0): no transport header decoded", p["transport"] is None)
 
 
+def test_link_layer():
+    udp_dgram = bytes.fromhex("d6d80035000c1234") + b"abcd"
+    ip_pkt = ip_header(17, len(udp_dgram)) + udp_dgram
+
+    ip, info = strip_link_layer(ip_pkt, "raw")
+    check("raw (Windows): bytes already start at the IP header", ip == ip_pkt)
+
+    #   dst MAC aa:bb:cc:dd:ee:ff | src MAC 11:22:33:44:55:66 | EtherType 08 00 (IPv4)
+    eth = bytes.fromhex("aabbccddeeff" "112233445566" "0800")
+    ip, info = strip_link_layer(eth + ip_pkt, "ethernet")
+    check("Ethernet: 14-byte header removed", ip == ip_pkt)
+    check("Ethernet: MAC addresses read",
+          info["src_mac"] == "11:22:33:44:55:66" and info["dst_mac"] == "aa:bb:cc:dd:ee:ff")
+    check("Ethernet frame -> packet decodes as UDP", parse_packet(ip)["udp"]["dst_port"] == 53)
+
+    vlan = bytes.fromhex("aabbccddeeff" "112233445566" "8100" "0064" "0800")
+    ip, info = strip_link_layer(vlan + ip_pkt, "ethernet")
+    check("Ethernet with VLAN tag: 18-byte header removed", ip == ip_pkt)
+
+    for label, ethertype in (("IPv6", "86dd"), ("ARP", "0806")):
+        ip, info = strip_link_layer(bytes.fromhex("aabbccddeeff112233445566" + ethertype) + bytes(28), "ethernet")
+        check(f"Ethernet {label} frame skipped", ip is None and label in info["skip_reason"])
+
+    #   loopback "null" header: address family 2 (AF_INET) little-endian = 02 00 00 00
+    ip, info = strip_link_layer(bytes.fromhex("02000000") + ip_pkt, "null")
+    check("Mac loopback: 4-byte family header removed", ip == ip_pkt)
+    ip, info = strip_link_layer(bytes.fromhex("1e000000") + bytes(40), "null")
+    check("Mac loopback: IPv6 (family 30) skipped", ip is None)
+
+
 if __name__ == "__main__":
     test_ipv4()
     test_tcp()
     test_udp()
     test_packet()
+    test_link_layer()
     print("\nALL PARSER TESTS PASSED" if failures == 0 else f"\n{failures} TEST(S) FAILED")
     sys.exit(1 if failures else 0)

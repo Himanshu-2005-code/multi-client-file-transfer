@@ -184,3 +184,60 @@ def parse_packet(data):
         packet["transport"] = "UDP"
         packet["udp"] = parse_udp(ip_payload)
     return packet
+
+
+# ---------------------------------------------------------------------------
+# What comes BEFORE the IP header depends on how the bytes were captured
+# (encapsulation, lecture slides: frame = [link header | datagram]):
+#   "raw"      Windows raw socket: the bytes start directly at the IP header
+#   "ethernet" Mac (Wi-Fi / Ethernet) and Linux: 14-byte Ethernet header first
+#   "null"     Mac loopback (lo0, 127.0.0.1): 4-byte address-family header first
+# ---------------------------------------------------------------------------
+
+ETHERTYPE_IPV4 = 0x0800
+ETHERTYPE_VLAN = 0x8100
+ETHERTYPES = {0x0800: "IPv4", 0x0806: "ARP", 0x86DD: "IPv6", 0x8100: "VLAN"}
+
+
+def mac_to_str(six_bytes):
+    return ":".join(f"{b:02x}" for b in six_bytes)
+
+
+def strip_link_layer(frame, link_type):
+    """
+    Remove the link-layer header and return (ip_bytes, link_info).
+    ip_bytes is None when the frame does not carry IPv4 (e.g. IPv6, ARP);
+    link_info["skip_reason"] then says why.
+    """
+    if link_type == "raw":
+        return frame, {"type": "raw"}
+
+    if link_type == "null":
+        # 4-byte address family, in the sending machine's byte order
+        # (little-endian on Macs). AF_INET = 2 means IPv4.
+        if len(frame) < 4:
+            return None, {"type": "null", "skip_reason": "frame too short"}
+        family = struct.unpack("<I", frame[:4])[0]
+        if family != 2:
+            return None, {"type": "null", "skip_reason": f"not IPv4 (address family {family})"}
+        return frame[4:], {"type": "null"}
+
+    if link_type == "ethernet":
+        # destination MAC (6 bytes) | source MAC (6) | EtherType (2)
+        if len(frame) < 14:
+            return None, {"type": "ethernet", "skip_reason": "frame too short"}
+        dst_mac, src_mac, ethertype = struct.unpack("!6s6sH", frame[:14])
+        offset = 14
+        if ethertype == ETHERTYPE_VLAN and len(frame) >= 18:
+            # 802.1Q VLAN tag: 4 extra bytes, the real EtherType is in the last 2
+            ethertype = struct.unpack("!H", frame[16:18])[0]
+            offset = 18
+        info = {"type": "ethernet", "src_mac": mac_to_str(src_mac), "dst_mac": mac_to_str(dst_mac),
+                "ethertype": ethertype}
+        if ethertype != ETHERTYPE_IPV4:
+            name = ETHERTYPES.get(ethertype, f"0x{ethertype:04x}")
+            info["skip_reason"] = f"not IPv4 (EtherType {name})"
+            return None, info
+        return frame[offset:], info
+
+    raise ValueError(f"unknown link type {link_type!r}")
