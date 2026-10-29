@@ -4,8 +4,10 @@ Mini packet analyzer: keeps the captured packets and shows them.
 Each captured IPv4 packet gets a number (1, 2, 3, ... in capture order), the
 time it was captured and its size, and is decoded once with packet_parser.
 
-Step 9 version:  python analyzer.py 20     captures 20 packets, prints the summary table
-(needs Administrator on Windows, sudo on Mac/Linux)
+Run (Administrator terminal on Windows, sudo on Mac/Linux):
+    python analyzer.py              then type: capture 20, list, filter tcp, show 3, help, quit
+    python analyzer.py -c 20        capture 20 packets first, then the prompt
+    python analyzer.py -i lo0       Mac: capture on loopback instead of Wi-Fi
 """
 
 import ipaddress
@@ -285,16 +287,116 @@ def capture_into(store, cap, count):
     return added
 
 
-if __name__ == "__main__":
+# --- Command-line interface -------------------------------------------------
+HELP = """Commands:
+  capture [N]          capture N more packets (default 20); Ctrl+C stops early
+  list                 summary of all captured packets
+  filter <words>       summary of the packets that match, e.g.  filter tcp dport 443
+  show <N>             details of packet number N (IP / TCP / UDP headers, payload)
+  clear                forget all captured packets
+  help                 this help
+  quit                 exit
+
+""" + FILTER_HELP
+
+
+class AnalyzerCLI:
+    """One command per line. open_capture is passed in so tests can use a fake capture."""
+
+    def __init__(self, open_capture, interface=None, local_ip=None):
+        self.open_capture = open_capture
+        self.interface = interface
+        self.local_ip = local_ip
+        self.store = PacketStore()
+
+    def capture(self, count):
+        cap = self.open_capture(local_ip=self.local_ip, interface=self.interface)
+        print(f"Capturing {count} packets ({cap.description}). Ctrl+C to stop early.")
+        try:
+            added = capture_into(self.store, cap, count)
+        finally:
+            cap.close()
+        print(f"{added} packets captured ({len(self.store.packets)} in total, "
+              f"{self.store.skipped} non-IPv4 frames skipped). Type 'list' or 'show <N>'.")
+
+    def handle(self, line):
+        """Run one command. Returns False when the user wants to quit."""
+        words = line.split()
+        if not words:
+            return True
+        cmd, args = words[0].lower(), words[1:]
+
+        if cmd in ("quit", "exit", "q"):
+            return False
+        if cmd == "help":
+            print(HELP)
+        elif cmd == "capture":
+            if args and not (args[0].isdigit() and int(args[0]) > 0):
+                print("Usage: capture [N]   (N = number of packets, e.g. capture 50)")
+            else:
+                self.capture(int(args[0]) if args else 20)
+        elif cmd == "list":
+            if not self.store.packets:
+                print("No packets yet. Type 'capture' first.")
+            else:
+                print_summary(self.store.packets)
+        elif cmd == "filter":
+            if not args:
+                print(FILTER_HELP)
+                return True
+            try:
+                conditions = parse_filter(" ".join(args))
+            except FilterError as e:
+                print(f"Bad filter: {e}\n{FILTER_HELP}")
+                return True
+            shown = filter_packets(self.store.packets, conditions)
+            print_summary(shown)
+            print(f"{len(shown)} of {len(self.store.packets)} packets match '{' '.join(args)}'.")
+        elif cmd == "show":
+            if len(args) != 1 or not args[0].isdigit():
+                print("Usage: show <N>   (N = packet number from the list)")
+            elif self.store.get(int(args[0])) is None:
+                print(f"No packet number {args[0]} (there are {len(self.store.packets)}).")
+            else:
+                print(detail_text(self.store.get(int(args[0]))))
+        elif cmd == "clear":
+            self.store = PacketStore()
+            print("All packets cleared.")
+        else:
+            print(f"Unknown command '{cmd}'. Type 'help'.")
+        return True
+
+    def run(self):
+        print("Mini Packet Analyzer. Type 'help' for commands.")
+        while True:
+            try:
+                line = input("analyzer> ")
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+            if not self.handle(line):
+                break
+
+
+def main():
+    import argparse
     from capture import open_capture
 
-    count = int(sys.argv[1]) if len(sys.argv) > 1 else 20
-    cap = open_capture(interface=sys.argv[2] if len(sys.argv) > 2 else None)
-    print(f"Capturing {count} packets ({cap.description}). Ctrl+C to stop early.")
-    store = PacketStore()
-    try:
-        capture_into(store, cap, count)
-    finally:
-        cap.close()
-    print_summary(store.packets)
-    print(f"\n{len(store.packets)} IPv4 packets captured, {store.skipped} non-IPv4 frames skipped.")
+    ap = argparse.ArgumentParser(description="Mini packet analyzer (IPv4 / TCP / UDP)")
+    ap.add_argument("-i", "--interface", help="Mac/Linux interface, e.g. en0, lo0, eth0, lo "
+                                              "(default: the one of the default route)")
+    ap.add_argument("--ip", help="Windows: local IP address of the interface to capture on "
+                                 "(default: the one of the default route)")
+    ap.add_argument("-c", "--count", type=int,
+                    help="capture this many packets at start, then go to the prompt")
+    args = ap.parse_args()
+
+    cli = AnalyzerCLI(open_capture, interface=args.interface, local_ip=args.ip)
+    if args.count:
+        cli.capture(args.count)
+        print_summary(cli.store.packets)
+    cli.run()
+
+
+if __name__ == "__main__":
+    main()

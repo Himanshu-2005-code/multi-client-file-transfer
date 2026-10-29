@@ -126,9 +126,60 @@ def test_detail():
     check("ICMP detail: IP header, no transport header", "IP Header" in d and "not TCP or UDP" in d)
 
 
+class FakeCapture:
+    """Stands in for capture.py: returns the test FRAMES, then nothing."""
+    link_type = "ethernet"
+    description = "fake capture"
+
+    def __init__(self, **kwargs):
+        self.frames = list(FRAMES)
+
+    def read(self):
+        if not self.frames:
+            raise KeyboardInterrupt          # like the user pressing Ctrl+C
+        return 1761800000.0, self.frames.pop(0)
+
+    def close(self):
+        pass
+
+
+def run_cli(*lines):
+    import contextlib
+    import io
+    from analyzer import AnalyzerCLI
+    cli = AnalyzerCLI(FakeCapture)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        results = [cli.handle(line) for line in lines]
+    return out.getvalue(), results, cli
+
+
+def test_cli():
+    out, _, cli = run_cli("list")
+    check("CLI: list before capture says so", "No packets yet" in out)
+    out, _, cli = run_cli("capture 3", "list")
+    check("CLI: capture 3 stores 3 IPv4 packets (ARP skipped)",
+          len(cli.store.packets) == 3 and "3 packets captured" in out and "1 non-IPv4" in out)
+    check("CLI: list prints the summary table", "No.  Time" in out and "142.250.183.14" in out)
+    out, _, _ = run_cli("capture 10", "filter udp")
+    check("CLI: filter udp -> 1 of 4", "1 of 4 packets match 'udp'" in out and "8.8.8.8" in out)
+    out, _, _ = run_cli("capture 10", "filter port nope")
+    check("CLI: bad filter explained", "Bad filter" in out)
+    out, _, _ = run_cli("capture 10", "show 3")
+    check("CLI: show 3 prints the details", "Packet #3" in out and "TCP Header" in out and "HELLO SERVER" in out)
+    out, _, _ = run_cli("capture 10", "show 9", "show x")
+    check("CLI: show with a wrong number explained", "No packet number 9" in out and "Usage: show" in out)
+    out, _, cli = run_cli("capture 10", "clear")
+    check("CLI: clear empties the store", cli.store.packets == [])
+    out, results, _ = run_cli("help", "blah", "quit")
+    check("CLI: help, unknown command, quit", "Commands:" in out and "Unknown command" in out
+          and results == [True, True, False])
+
+
 if __name__ == "__main__":
     test_store()
     test_filters()
     test_detail()
+    test_cli()
     print("\nALL ANALYZER TESTS PASSED" if failures == 0 else f"\n{failures} TEST(S) FAILED")
     sys.exit(1 if failures else 0)

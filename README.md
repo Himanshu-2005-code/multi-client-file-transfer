@@ -31,7 +31,51 @@ tests/             test_parser.py, test_capture.py, test_analyzer.py: checks on 
 
 ## Running it
 
-Parser tests (no capture, no admin needed):
+Open a terminal **as Administrator** (Windows: right-click PowerShell -> "Run as
+administrator") or use **sudo** (Mac/Linux), go to this folder, and start the analyzer:
+
+```
+python analyzer.py                 # Windows
+sudo python3 analyzer.py           # Mac / Linux
+```
+
+At the `analyzer>` prompt:
+
+| Command | What it does |
+|---|---|
+| `capture [N]` | capture N more packets (default 20); Ctrl+C stops early |
+| `list` | summary: No., Time, Source, Destination, Protocol, ports, Length |
+| `filter <words>` | summary of matching packets, e.g. `filter tcp dport 443` (see Filters) |
+| `show <N>` | details of packet N: IP header, TCP/UDP header, payload |
+| `clear` | forget all packets |
+| `help`, `quit` | |
+
+Options: `-c 20` captures 20 packets before the prompt; `-i lo0` (Mac) / `-i lo` (Linux)
+captures on loopback instead of the default interface; `--ip 192.168.1.5` (Windows) picks
+the interface by its IP address. Generate traffic while capturing, e.g. open a website.
+
+Example session:
+
+```
+analyzer> capture 6
+Capturing 6 packets (Linux packet socket on lo (ethernet)). Ctrl+C to stop early.
+6 packets captured (6 in total, 0 non-IPv4 frames skipped). Type 'list' or 'show <N>'.
+analyzer> list
+  No.  Time          Source           Destination      Proto  Src Port  Dst Port  Length
+----------------------------------------------------------------------------------------
+    1  19:40:24.452  127.0.0.1        127.0.0.1        UDP       53479      9999      54
+    2  19:40:24.452  127.0.0.1        127.0.0.1        ICMP          -         -      82
+    3  19:40:24.460  127.0.0.1        127.0.0.1        TCP       53504      9998      74
+    4  19:40:24.460  127.0.0.1        127.0.0.1        TCP        9998     53504      74
+    5  19:40:24.460  127.0.0.1        127.0.0.1        TCP       53504      9998      66
+    6  19:40:24.460  127.0.0.1        127.0.0.1        TCP       53504      9998      80
+analyzer> filter tcp dport 9998
+...
+3 of 6 packets match 'tcp dport 9998'.
+analyzer> show 1
+```
+
+Tests (no capture, no admin needed):
 
 ```
 python tests/test_parser.py
@@ -39,30 +83,7 @@ python tests/test_capture.py
 python tests/test_analyzer.py
 ```
 
-Capture 20 packets and print the summary table (Windows: Administrator terminal;
-Mac/Linux: add `sudo`):
-
-```
-python analyzer.py 20
-```
-
-Quick capture test, Windows (open PowerShell with "Run as administrator"):
-
-```
-python capture.py 10
-```
-
-Mac or Linux (Terminal; the interface of the default route is chosen automatically,
-e.g. `en0` = Wi-Fi on a Mac):
-
-```
-sudo python3 capture.py 10
-sudo python3 capture.py 10 lo0      # Mac loopback (127.0.0.1) instead
-sudo python3 capture.py 10 lo       # Linux loopback
-```
-
-Then open a website: 10 packets are printed with number, time, size, IPs, protocol and
-ports. (The full analyzer with filters and packet details is added in later steps.)
+`python capture.py 10` is a minimal capture test that prints 10 packets, one line each.
 
 ## Filters
 

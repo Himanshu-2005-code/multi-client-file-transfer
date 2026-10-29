@@ -226,3 +226,24 @@ correct 10-row table (TCP to/from port 443).
 **What the AI checked (Linux, as root):** captured a real UDP datagram "HELLO SERVER" on
 loopback and printed its details: IP header (total length 40, TTL 64, protocol UDP 17),
 UDP header (length 20 = 8 + 12), payload `48 45 4C 4C 4F 20 53 45 52 56 45 52` / HELLO SERVER.
+
+---
+
+## Step 12: interactive command line
+
+**Our prompt:** "next"
+
+**AI output:**
+- `analyzer.py`: `python analyzer.py` opens a prompt (`analyzer>`) with the commands
+  `capture [N]` (default 20, Ctrl+C stops early), `list` (summary of all packets),
+  `filter <words>` (summary of matching packets and how many match), `show <N>` (details),
+  `clear`, `help`, `quit`; options `-i/--interface` (Mac/Linux), `--ip` (Windows) and
+  `-c/--count` (capture before the prompt). Wrong input gets a usage message instead of a crash.
+  `AnalyzerCLI` takes the capture function as a parameter, so it can be tested without admin.
+- `tests/test_analyzer.py`: 9 more checks (56 in total) driving the commands with a fake capture.
+
+**What the AI checked (Linux, as root):** `python analyzer.py -i lo` with typed commands while a
+UDP datagram and a TCP connection with data ran on 127.0.0.1: `capture 6`, `list`,
+`filter tcp dport 9998` (3 of 6), `filter udp` (1 of 6), `show 2`. Packet 2 was a real ICMP
+"port unreachable" (type 3, code 3): nothing listened on UDP port 9999, and the ICMP message
+quotes the original IP + UDP header and "HELLO SERVER".
