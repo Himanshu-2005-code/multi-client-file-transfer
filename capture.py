@@ -11,10 +11,16 @@ Each capture object has:
 
 Capturing needs Administrator (Windows) or root (sudo, Mac/Linux).
 
-Quick test:  python capture.py 10      (captures 10 packets and prints them)
+Quick test:  python capture.py 10            (Windows, Administrator terminal)
+             sudo python3 capture.py 10      (Mac)
 """
 
+import collections
+import os
+import select
 import socket
+import struct
+import subprocess
 import sys
 import time
 
@@ -73,10 +79,111 @@ class WindowsCapture:
             self.sock.close()
 
 
-def open_capture(local_ip=None):
+# --- macOS: Berkeley Packet Filter (BPF) device -------------------------------
+# ioctl request numbers from macOS <net/bpf.h> (_IOR/_IOW macros, group 'B'):
+BIOCGBLEN = 0x40044266      # get the buffer length the kernel uses
+BIOCSETIF = 0x8020426C      # attach the device to a network interface (struct ifreq)
+BIOCGDLT = 0x4004426A       # get the link type (data link type) of that interface
+BIOCIMMEDIATE = 0x80044270  # return packets as soon as they arrive (no batching delay)
+DLT_NULL, DLT_EN10MB = 0, 1  # BSD loopback header, Ethernet
+
+
+def parse_bpf_buffer(buf):
+    """
+    One read() from a BPF device returns SEVERAL packets, each preceded by a
+    bpf_hdr record header (macOS, little-endian):
+
+      bytes 0-3   timestamp seconds        bytes 4-7    timestamp microseconds
+      bytes 8-11  captured length          bytes 12-15  original length on the wire
+      bytes 16-17 length of this bpf_hdr (usually 18)
+      then the packet (captured length bytes), then padding to a multiple of 4
+
+    Returns a list of (timestamp, frame_bytes).
+    """
+    packets = []
+    offset = 0
+    while offset + 18 <= len(buf):
+        sec, usec, caplen, datalen, hdrlen = struct.unpack_from("<IIIIH", buf, offset)
+        start = offset + hdrlen
+        packets.append((sec + usec / 1e6, bytes(buf[start:start + caplen])))
+        # next record starts at the next 4-byte boundary (BPF_WORDALIGN)
+        offset += (hdrlen + caplen + 3) & ~3
+    return packets
+
+
+def default_mac_interface():
+    """The interface of the default route, e.g. en0 (Wi-Fi on most Macs)."""
+    try:
+        out = subprocess.run(["route", "-n", "get", "default"], capture_output=True,
+                             text=True, timeout=3).stdout
+        for line in out.splitlines():
+            if line.strip().startswith("interface:"):
+                return line.split(":", 1)[1].strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "en0"
+
+
+class MacCapture:
+    """
+    macOS has no "receive all" raw socket. Packet capture tools (tcpdump,
+    Wireshark) use a BPF device /dev/bpfN instead: open a free one, attach it
+    to an interface with ioctl(BIOCSETIF), then read() raw frames, each with
+    a small BPF record header. We do exactly that with os.open + fcntl.ioctl.
+    The frames start with the Ethernet header (Wi-Fi/Ethernet) or a 4-byte
+    loopback header (lo0); the kernel tells us which with BIOCGDLT.
+    """
+
+    def __init__(self, interface=None):
+        import fcntl
+        self.interface = interface or default_mac_interface()
+        self.fd = None
+        for i in range(256):                  # find a BPF device nobody is using
+            try:
+                self.fd = os.open(f"/dev/bpf{i}", os.O_RDONLY)
+                break
+            except PermissionError:
+                sys.exit("[!] Permission denied: run with sudo.")
+            except OSError:                   # busy or does not exist: try the next one
+                continue
+        if self.fd is None:
+            sys.exit("[!] No free /dev/bpf device found.")
+
+        # attach to the interface: struct ifreq = 16-byte name + 16 bytes we don't use
+        fcntl.ioctl(self.fd, BIOCSETIF, struct.pack("16s16x", self.interface.encode()))
+        fcntl.ioctl(self.fd, BIOCIMMEDIATE, struct.pack("I", 1))
+        self.buf_len = struct.unpack("I", fcntl.ioctl(self.fd, BIOCGBLEN, struct.pack("I", 0)))[0]
+        dlt = struct.unpack("I", fcntl.ioctl(self.fd, BIOCGDLT, struct.pack("I", 0)))[0]
+        if dlt == DLT_EN10MB:
+            self.link_type = "ethernet"
+        elif dlt == DLT_NULL:
+            self.link_type = "null"
+        else:
+            sys.exit(f"[!] Interface {self.interface} has link type {dlt}, which we do not decode.")
+        self.pending = collections.deque()
+        self.description = f"macOS BPF on {self.interface} ({self.link_type})"
+
+    def read(self):
+        if not self.pending:
+            # wait at most 1 s so Ctrl+C and the caller's loop stay responsive
+            ready, _, _ = select.select([self.fd], [], [], 1.0)
+            if not ready:
+                return None
+            self.pending.extend(parse_bpf_buffer(os.read(self.fd, self.buf_len)))
+            if not self.pending:
+                return None
+        return self.pending.popleft()
+
+    def close(self):
+        os.close(self.fd)
+
+
+def open_capture(local_ip=None, interface=None):
     """Open the capture method for this operating system."""
     if sys.platform == "win32":
         return WindowsCapture(local_ip)
+    if sys.platform == "darwin":
+        return MacCapture(interface)
     sys.exit(f"[!] Capture on {sys.platform} is not supported yet.")
 
 
@@ -84,7 +191,7 @@ def _quick_test(count):
     from datetime import datetime
     from packet_parser import ParseError, parse_packet, strip_link_layer
 
-    cap = open_capture()
+    cap = open_capture(interface=sys.argv[2] if len(sys.argv) > 2 else None)
     print(f"Capturing {count} packets ({cap.description}). Ctrl+C to stop.")
     n = 0
     try:

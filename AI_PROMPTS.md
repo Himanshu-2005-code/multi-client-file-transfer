@@ -129,3 +129,23 @@ so it holds only A3 files; this log; a README skeleton; `.gitignore`.
 
 **What we checked:** the AI could not run Windows itself (only a Linux shell), so the Windows
 test is done by us on Himanshu's laptop (result logged in the next step).
+
+---
+
+## Step 7: packet capture on macOS
+
+**Our prompt:** "next" (the Windows test from step 6 is still to be run by us)
+
+**AI output:**
+- `capture.py`: `MacCapture` uses a BPF device, as tcpdump and Wireshark do on macOS (macOS has
+  no "receive all" raw socket): opens a free `/dev/bpfN`, attaches it to the default-route
+  interface (e.g. `en0`, from `route -n get default`) with `ioctl(BIOCSETIF)`, sets
+  `BIOCIMMEDIATE`, reads the buffer size (`BIOCGBLEN`) and link type (`BIOCGDLT`: Ethernet or
+  loopback). Only the standard library (`os`, `fcntl`, `select`, `struct`).
+  `parse_bpf_buffer()` splits one read into packets: each has an 18-byte `bpf_hdr` (timestamp
+  seconds and microseconds, captured length, original length, header length) and is padded
+  to a multiple of 4 bytes. `sudo python3 capture.py 10` runs the quick test on a Mac.
+- `tests/test_capture.py`: 6 checks on a hand-made BPF buffer (two records, padding,
+  timestamps, and BPF -> Ethernet -> IPv4 -> UDP decoding end to end).
+
+**What we checked:** the tests pass; the Mac run itself is done by Divyansh on his MacBook.
