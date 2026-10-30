@@ -311,3 +311,17 @@ chose "A3: VLAN + quick test".
 `python capture.py 10` quick-test mode; README updated (132 checks).
 
 **What we checked:** `python tests/run_all.py` passes; a live capture with `analyzer.py` still works.
+
+---
+
+## Step 17: simpler replacements
+
+**Our prompts:** "what are the extra tricks concepts that i have used are theree simple replacements and";
+"do all you think replace"
+
+**AI output:** removed the macOS loopback (lo0) header handling, the tests that ran the Windows and
+macOS capture code against fake operating-system calls, the Linux loopback duplicate filter, and the
+command-line options (-i, --ip, -c): the analyzer always captures on the default interface.
+
+**What we checked:** `python tests/run_all.py` passes (114 checks); a live capture with `analyzer.py`
+on the default interface (TCP to port 443) works with `capture`, `list`, `filter`, `show`.

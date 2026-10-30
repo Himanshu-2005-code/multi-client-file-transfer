@@ -6,8 +6,6 @@ time it was captured and its size, and is decoded once with packet_parser.
 
 Run (Administrator terminal on Windows, sudo on Mac/Linux):
     python analyzer.py              then type: capture 20, list, filter tcp, show 3, help, quit
-    python analyzer.py -c 20        capture 20 packets first, then the prompt
-    python analyzer.py -i lo0       Mac: capture on loopback instead of Wi-Fi
 """
 
 import ipaddress
@@ -303,14 +301,12 @@ HELP = """Commands:
 class AnalyzerCLI:
     """One command per line. open_capture is passed in so tests can use a fake capture."""
 
-    def __init__(self, open_capture, interface=None, local_ip=None):
+    def __init__(self, open_capture):
         self.open_capture = open_capture
-        self.interface = interface
-        self.local_ip = local_ip
         self.store = PacketStore()
 
     def capture(self, count):
-        cap = self.open_capture(local_ip=self.local_ip, interface=self.interface)
+        cap = self.open_capture()
         print(f"Capturing {count} packets ({cap.description}). Ctrl+C to stop early.")
         try:
             added = capture_into(self.store, cap, count)
@@ -379,23 +375,8 @@ class AnalyzerCLI:
 
 
 def main():
-    import argparse
     from capture import open_capture
-
-    ap = argparse.ArgumentParser(description="Mini packet analyzer (IPv4 / TCP / UDP)")
-    ap.add_argument("-i", "--interface", help="Mac/Linux interface, e.g. en0, lo0, eth0, lo "
-                                              "(default: the one of the default route)")
-    ap.add_argument("--ip", help="Windows: local IP address of the interface to capture on "
-                                 "(default: the one of the default route)")
-    ap.add_argument("-c", "--count", type=int,
-                    help="capture this many packets at start, then go to the prompt")
-    args = ap.parse_args()
-
-    cli = AnalyzerCLI(open_capture, interface=args.interface, local_ip=args.ip)
-    if args.count:
-        cli.capture(args.count)
-        print_summary(cli.store.packets)
-    cli.run()
+    AnalyzerCLI(open_capture).run()
 
 
 if __name__ == "__main__":

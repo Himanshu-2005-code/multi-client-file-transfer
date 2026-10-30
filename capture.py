@@ -3,7 +3,7 @@ Packet capture: getting the raw bytes from the operating system.
 
 This part only OBTAINS the bytes; all decoding is done by packet_parser.py.
 Each capture object has:
-    link_type   what comes before the IP header ("raw", "ethernet", "null"),
+    link_type   what comes before the IP header ("raw" or "ethernet"),
                 passed to packet_parser.strip_link_layer()
     read()      waits for the next packet and returns (timestamp, frame_bytes),
                 or None if nothing arrived within about a second
@@ -84,7 +84,7 @@ BIOCGBLEN = 0x40044266      # get the buffer length the kernel uses
 BIOCSETIF = 0x8020426C      # attach the device to a network interface (struct ifreq)
 BIOCGDLT = 0x4004426A       # get the link type (data link type) of that interface
 BIOCIMMEDIATE = 0x80044270  # return packets as soon as they arrive (no batching delay)
-DLT_NULL, DLT_EN10MB = 0, 1  # BSD loopback header, Ethernet
+DLT_EN10MB = 1              # Ethernet
 
 
 def parse_bpf_buffer(buf):
@@ -129,8 +129,8 @@ class MacCapture:
     Wireshark) use a BPF device /dev/bpfN instead: open a free one, attach it
     to an interface with ioctl(BIOCSETIF), then read() raw frames, each with
     a small BPF record header. We do exactly that with os.open + fcntl.ioctl.
-    The frames start with the Ethernet header (Wi-Fi/Ethernet) or a 4-byte
-    loopback header (lo0); the kernel tells us which with BIOCGDLT.
+    The frames start with the Ethernet header (Wi-Fi/Ethernet); BIOCGDLT
+    confirms that.
     """
 
     def __init__(self, interface=None):
@@ -155,8 +155,6 @@ class MacCapture:
         dlt = struct.unpack("I", fcntl.ioctl(self.fd, BIOCGDLT, struct.pack("I", 0)))[0]
         if dlt == DLT_EN10MB:
             self.link_type = "ethernet"
-        elif dlt == DLT_NULL:
-            self.link_type = "null"
         else:
             sys.exit(f"[!] Interface {self.interface} has link type {dlt}, which we do not decode.")
         self.pending = collections.deque()
@@ -179,7 +177,6 @@ class MacCapture:
 
 # --- Linux: packet socket ------------------------------------------------------
 ETH_P_ALL = 0x0003          # "all protocols" (from <linux/if_ether.h>)
-PACKET_OUTGOING = 4         # packet type: sent by this host
 ARPHRD_ETHER, ARPHRD_LOOPBACK, ARPHRD_NONE = 1, 772, 65534
 
 
@@ -199,9 +196,8 @@ def default_linux_interface():
 class LinuxCapture:
     """
     Linux: an AF_PACKET raw socket receives a copy of every frame on an
-    interface, sent or received, starting at the link-layer header. Ethernet
-    and loopback interfaces both give a 14-byte Ethernet header
-    (loopback with zero MAC addresses); VPN-style interfaces give raw IP.
+    interface, sent or received, starting at the link-layer header: a 14-byte
+    Ethernet header (VPN-style interfaces give raw IP).
     """
 
     def __init__(self, interface=None):
@@ -220,12 +216,8 @@ class LinuxCapture:
 
     def read(self):
         try:
-            data, addr = self.sock.recvfrom(65535)
+            data = self.sock.recv(65535)
         except socket.timeout:
-            return None
-        # On loopback every packet is seen twice (once going out, once coming
-        # in); keep only the incoming copy so each packet is listed once.
-        if self.interface == "lo" and addr[2] == PACKET_OUTGOING:
             return None
         return time.time(), data
 

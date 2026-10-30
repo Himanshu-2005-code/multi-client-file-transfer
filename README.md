@@ -51,11 +51,11 @@ At the `analyzer>` prompt:
 | `clear` | forget all packets |
 | `help`, `quit` | |
 
-Options: `-c 20` captures 20 packets before the prompt; `-i lo0` (Mac) / `-i lo` (Linux)
-captures on loopback instead of the default interface; `--ip 192.168.1.5` (Windows) picks
-the interface by its IP address. Generate traffic while capturing, e.g. open a website.
+The interface of the default route (Wi-Fi or Ethernet) is used. Generate traffic while
+capturing, e.g. open a website.
 
-Example session:
+Example session (recorded on Linux with an earlier version that could capture on the
+loopback interface):
 
 ```
 analyzer> capture 6
@@ -79,11 +79,8 @@ analyzer> show 1
 Tests (no capture, no admin needed):
 
 ```
-python tests/run_all.py            # all of them: 132 checks
+python tests/run_all.py            # all of them: 114 checks
 ```
-
-`test_capture.py` also runs the Windows and macOS capture code against fake
-operating-system calls, so that logic is checked on any computer.
 
 ## Filters
 
@@ -104,7 +101,7 @@ Examples: `tcp`, `udp port 53`, `ip 8.8.8.8`, `tcp src 192.168.1.10 dport 443`.
 Selecting a packet shows its Ethernet header (if any), every IPv4 header field, the TCP or
 UDP header, the raw bytes of each header, and the payload as a hex dump and as text. A
 packet without application data shows `Payload Length: 0 bytes` and
-`(empty: payload length 0 bytes)`. Example (a real UDP datagram on loopback):
+`(empty: payload length 0 bytes)`. Example (a real UDP datagram):
 
 ```
 Packet #1
@@ -163,7 +160,6 @@ Each packet is timestamped when it is read (the BPF header's own timestamp on a 
 |---|---|---|
 | Windows (raw socket) | nothing | bytes start at the IP header |
 | Mac Wi-Fi/Ethernet, Linux | Ethernet header, 14 bytes: destination MAC (6), source MAC (6), EtherType (2) | EtherType 0x0800 = IPv4 -> skip 14 bytes; IPv6 (0x86DD) and ARP (0x0806) are skipped |
-| Mac loopback (lo0) | 4-byte address family (little-endian) | 2 = IPv4 -> skip 4 bytes |
 
 **IPv4 header** (`parse_ipv4`, lecture L17 "IP Datagram format"): 20 bytes, plus options
 if the header length is more than 20.
@@ -217,14 +213,14 @@ length, so link-layer padding after the packet is not mistaken for data.
 
 ## Testing
 
-`python tests/run_all.py` runs 132 checks without capturing (parser 54, capture 22,
-analyzer 56): every header field on hand-made bytes, bad and short inputs, Ethernet /
-loopback headers, a BPF buffer, the Windows and macOS capture code against fake OS calls,
-filters, the detail view (including an empty payload) and the commands.
+`python tests/run_all.py` runs 114 checks without capturing (parser 52, capture 6,
+analyzer 56): every header field on hand-made bytes, bad and short inputs, Ethernet
+headers, a macOS BPF buffer, filters, the detail view (including an empty payload) and the
+commands.
 
 | Where | Result |
 |---|---|
-| Linux (Python 3.11, 3.12, 3.13) | 132/132 checks; live capture on `eth0` (web traffic, TCP 443) and `lo` (UDP, TCP handshake, ICMP port unreachable) |
+| Linux (Python 3.11, 3.12, 3.13) | 114/114 checks; live capture on `eth0` (web traffic, TCP 443) and `lo` (UDP, TCP handshake, ICMP port unreachable) |
 | Himanshu's laptop, Linux VM (Python 3.10) | all checks pass; without sudo: "Permission denied: run with sudo." |
 | Windows (Administrator) | live run by us, see the report |
 | macOS (sudo) | live run by Divyansh, see the report |
@@ -236,7 +232,6 @@ filters, the detail view (including an empty payload) and the commands.
 - **Packets larger than 1500 bytes** can appear: the OS hands the network card large TCP
   chunks that the card splits into frames (segmentation offload), and we capture before that
   split. Wireshark shows the same.
-- **Loopback on Linux** delivers each packet twice (sent and received); we keep one copy.
 - **Fragments**: a later fragment of a split IP datagram has no TCP/UDP header, so only its
   IP header is decoded.
 - **Windows** raw sockets give no Ethernet header, so no MAC addresses are shown there.
@@ -244,7 +239,7 @@ filters, the detail view (including an empty payload) and the commands.
 
 ## Use of AI
 
-AI tool: Claude (Anthropic), in the Claude app. The work was done in 17 small steps, one
+AI tool: Claude (Anthropic), in the Claude app. The work was done in 18 small steps, one
 prompt per step, one git commit per step (branch `a3`). Our prompts, word for word:
 
 | Step | Prompt | Result |
@@ -266,6 +261,7 @@ prompt per step, one git commit per step (branch `a3`). Our prompts, word for wo
 | 14 | "next" | final README, report PDF, zip |
 | 15 | "Make the pdf of assignment 2 and 3 with prompts like the assignment 1" | report rewritten in the format of our A1 report |
 | 16 | "anything u can remove from these without efecting the requiremnt and that is extra from ur end"; chose "A3: VLAN + quick test" | VLAN tag handling and the capture.py quick-test mode removed |
+| 17 | "what are the extra tricks concepts that i have used are theree simple replacements and"; "do all you think replace" | macOS loopback header, fake-OS capture tests and command-line options removed |
 
 Full details of each step (what was produced and what was checked) are in
 [`AI_PROMPTS.md`](AI_PROMPTS.md).

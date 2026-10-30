@@ -191,7 +191,6 @@ def parse_packet(data):
 # (encapsulation, lecture slides: frame = [link header | datagram]):
 #   "raw"      Windows raw socket: the bytes start directly at the IP header
 #   "ethernet" Mac (Wi-Fi / Ethernet) and Linux: 14-byte Ethernet header first
-#   "null"     Mac loopback (lo0, 127.0.0.1): 4-byte address-family header first
 # ---------------------------------------------------------------------------
 
 ETHERTYPE_IPV4 = 0x0800
@@ -210,16 +209,6 @@ def strip_link_layer(frame, link_type):
     """
     if link_type == "raw":
         return frame, {"type": "raw"}
-
-    if link_type == "null":
-        # 4-byte address family, in the sending machine's byte order
-        # (little-endian on Macs). AF_INET = 2 means IPv4.
-        if len(frame) < 4:
-            return None, {"type": "null", "skip_reason": "frame too short"}
-        family = struct.unpack("<I", frame[:4])[0]
-        if family != 2:
-            return None, {"type": "null", "skip_reason": f"not IPv4 (address family {family})"}
-        return frame[4:], {"type": "null"}
 
     if link_type == "ethernet":
         # destination MAC (6 bytes) | source MAC (6) | EtherType (2)

@@ -179,12 +179,6 @@ def test_link_layer():
         ip, info = strip_link_layer(bytes.fromhex("aabbccddeeff112233445566" + ethertype) + bytes(28), "ethernet")
         check(f"Ethernet {label} frame skipped", ip is None and label in info["skip_reason"])
 
-    #   loopback "null" header: address family 2 (AF_INET) little-endian = 02 00 00 00
-    ip, info = strip_link_layer(bytes.fromhex("02000000") + ip_pkt, "null")
-    check("Mac loopback: 4-byte family header removed", ip == ip_pkt)
-    ip, info = strip_link_layer(bytes.fromhex("1e000000") + bytes(40), "null")
-    check("Mac loopback: IPv6 (family 30) skipped", ip is None)
-
 
 if __name__ == "__main__":
     test_ipv4()
