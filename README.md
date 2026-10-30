@@ -462,6 +462,7 @@ auto-registration, editing the stored file for the tamper demo).
 | 14 | "check alll the requirements as i donot wantt o lose marks" | requirement audit; expired-certificate demo; CA key left out of the zip; password hidden while typing |
 | 15 | "where can i loose marks"; "76 commits in one day is too much"; chose "Squash to one commit per step" | git history squashed to one commit per step (no code change) |
 | 16 | "The end-to-end encryption means that only the intended receiver should be able to see the decrypted data. If server is only a relay, then it should not be able to see it."; chose "cryptography package" and "MSG + SEND" | end-to-end encryption of MSG and SEND, curious-server demo, `tests/test_e2e.py` |
+| 17 | "Make the pdf of assignment 2 and 3 with prompts like the assignment 1" | report rewritten in the format of my A1 report |
 
 Questions I asked the AI to understand the material (no code produced): "what is tls",
 the CN syllabus slides (to check which security topics my course covers), and the

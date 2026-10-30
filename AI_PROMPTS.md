@@ -377,3 +377,17 @@ base64, and `SEND|bob|E2E|4505|...` with random bytes); `tests/test_e2e.py` and 
 laptop (3 runs, all PASS). Known limits are in the README (first key trusted as given;
 messages not signed; BROADCAST and uploads protected by TLS only).
 
+
+---
+
+## Step 17: report in the format of my A1 report
+
+**My prompt:** "Make the pdf of assignment 2 and 3 with prompts like the assignment 1" (with my A1
+report attached)
+
+**AI output:** `2024261_A2.pdf` rewritten in the format of my A1 technical report (LaTeX, table of
+contents; Introduction, Design, Implementation, Security Demonstrations, Experimental Results, Prompts of
+AI Use as a numbered list, Verification Performed, Challenges, Conclusion), including the end-to-end
+encryption from step 16.
+
+**What I checked:** the report matches this log, the code and the measured results.
