@@ -7,7 +7,6 @@ with scripted input, and checks that:
   - bob reads alice's private message and receives her file correctly
   - the server never saw the message text, the file contents or the file name
   - a different user's key cannot decrypt, and a modified envelope is rejected
-  - a changed public key for a known user is detected (trust on first use)
   - PUBKEY / GETKEY replies
 
 Run:  python tests/test_e2e.py      (needs: pip install cryptography)
@@ -86,7 +85,6 @@ def run_checks():
     b_out, _ = bob.communicate(timeout=30)
 
     check("alice: message sent end-to-end encrypted", "Sent (end-to-end encrypted" in a_out)
-    check("alice: first use of bob's key remembered", "First message to bob" in a_out)
     check("bob: message decrypted correctly",
           f"[MSG from alice, end-to-end encrypted] {SECRET_MSG}" in b_out)
     got_path = os.path.join(ROOT, "client", "received", SECRET_NAME)
@@ -127,10 +125,6 @@ def run_checks():
     except e2e.E2EError:
         ok = True
     check("an envelope cannot be passed off as from another sender", ok)
-    check("TOFU: alice already knows bob's key",
-          e2e.check_known_key("alice", "bob", bob_pub, keydir) == "same")
-    check("TOFU: a different key for bob is detected",
-          e2e.check_known_key("alice", "bob", e2e.public_key_b64(carol_key), keydir) == "CHANGED")
 
 
 SERVER_LOG = os.path.join(ROOT, "tests", "curious_server.log")

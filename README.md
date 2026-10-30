@@ -11,7 +11,7 @@ but cannot read them.
 
 | A2 requirement | How it is done |
 |---|---|
-| 1. Authentication: no plaintext passwords; invalid attempts rejected | Passwords only travel inside TLS; the server stores salted PBKDF2-SHA256 hashes. New users must `REGISTER`; wrong password or unknown user gets `AUTH_FAILED`; 3 failures close the connection. |
+| 1. Authentication: no plaintext passwords; invalid attempts rejected | Passwords only travel inside TLS; the server stores salted PBKDF2-SHA256 hashes. New users must `REGISTER`; wrong password or unknown user gets `AUTH_FAILED`. |
 | 2. Certificates and secure communication | Our own CA and a server certificate made with **OpenSSL**. The client trusts only our CA, checks the server's certificate and name, and refuses untrusted servers. Each client connection has its own TLS session. |
 | 3. Secure messaging | MSG and BROADCAST travel inside each client's TLS session. **MSG is end-to-end encrypted**: the sender's client encrypts it for the receiver's public key (RSA-OAEP + AES-256-GCM), so the server, which only relays it, cannot read it. |
 | 4. Secure file transfer (100 KB, 1 MB, 10 MB) | UPLOAD, DOWNLOAD and SEND all go over TLS. **SEND (user to user) is end-to-end encrypted**, file name included. `experiments/test4_secure_transfer.py` runs all three sizes. |
@@ -128,7 +128,7 @@ Changes from A1 are in **bold**.
 | Client sends | Server replies | Errors |
 |---|---|---|
 | **`REGISTER\|user\|password`** | **`REGISTER_OK\|user`** | **USER_EXISTS, BAD_USERNAME, BAD_PASSWORD**, BAD_ARGS, ALREADY_LOGGED_IN |
-| `LOGIN\|user\|password` | `LOGIN_OK\|user` | AUTH_FAILED (wrong password **or unknown user**), USER_ALREADY_ONLINE, BAD_ARGS, ALREADY_LOGGED_IN, **TOO_MANY_ATTEMPTS** (3rd failure, then disconnect) |
+| `LOGIN\|user\|password` | `LOGIN_OK\|user` | AUTH_FAILED (wrong password **or unknown user**), USER_ALREADY_ONLINE, BAD_ARGS, ALREADY_LOGGED_IN |
 | `LIST` | `USERS\|alice,bob` | |
 | `ALLUSERS` | `ALLUSERS\|alice:online,carol:offline` | |
 | `FILES` | `FILES\|a.txt,b.pdf` | |
@@ -209,7 +209,6 @@ Alice                          Server                          Bob
   |                              |<-- PUBKEY|<bob's public key> | (at bob's login)
   |-- GETKEY|bob --------------->|                              |
   |<- KEY|bob|<public key> ------|                              |
-  | first time: remember the key's fingerprint; later: refuse if it changed
   | K = random AES-256 key;  C = AES-GCM(K, text);  W = RSA-OAEP(bob's public key, K)
   |-- MSG|bob|E2E:base64(W+nonce+C) ->| sees only ciphertext      |
   |                              |-- MSG|alice|E2E:... -------->| K = RSA-OAEP decrypt(W, bob's
@@ -232,8 +231,8 @@ the SEND diagram above run on the encrypted bytes.
   server name; on failure it exits before sending anything. In practice TLS 1.3 with
   `TLS_AES_256_GCM_SHA384` is negotiated.
 - **Passwords.** Stored as `pbkdf2_sha256$200000$<16-byte salt>$<hash>`; compared with
-  `hmac.compare_digest`. Unknown users are checked against a dummy hash so a login takes
-  the same time whether or not the user exists.
+  `hmac.compare_digest`. An unknown user gets the same `AUTH_FAILED` reply as a wrong
+  password.
 - **Integrity.** SHA-256 (`protocol.sha256_hex`) on every UPLOAD, DOWNLOAD and SEND, as
   in the diagrams above. The server records each upload's verified digest in
   `server/digests/`, so a file changed on the server's disk later is caught on download.
@@ -248,10 +247,6 @@ the SEND diagram above run on the encrypted bytes.
   envelope, and the sender, receiver and kind (MSG/SEND) are authenticated with it, so an
   envelope cannot be replayed to someone else or as from someone else. The server is
   standard-library only and never touches these keys.
-  Because the server hands out the public keys, it could try to hand out a fake one; the
-  client remembers each peer's key fingerprint the first time (`client/keys/<user>.known`,
-  "trust on first use") and refuses to send if it changes, and prints the fingerprint so
-  two users can compare it in person.
 - **Concurrency.** Several threads can write to one client's TLS socket (its own replies,
   and MSG/BROADCAST/SEND_INCOMING from other clients). A write lock per socket keeps
   every message, and every header + file pair, from being mixed with another.
@@ -382,18 +377,15 @@ sender and decrypted by the receiver (the 100 KB send includes one RSA operation
 untrusted and an expired certificate, registration and login rules, no plaintext in `users.txt`, every A1 command,
 and the integrity checks for upload, download (including a file modified on the server)
 and send (including a corrupted file that must not be forwarded).
-`tests/test_e2e.py` runs the curious server and two real clients and checks 20 things:
+`tests/test_e2e.py` runs the curious server and two real clients and checks 17 things:
 bob reads alice's message and file; the server never saw the text, the file name or the
 contents; another user's key cannot decrypt; a changed envelope or a wrong sender is
-rejected; a changed public key is detected; PUBKEY / GETKEY replies.
+rejected; PUBKEY / GETKEY replies.
 
 ## Problems found and fixed during A2
 
 - **Strict certificate checks (Python 3.13+).** The first CA certificate was rejected
   because it did not state `CA:TRUE` / `keyCertSign`. Fixed in `gen_certs.py`.
-- **Two replies for one request.** On the 3rd failed login the server sent
-  `AUTH_FAILED` and `TOO_MANY_ATTEMPTS`; the client read the first, tried again on a
-  closed connection and crashed. Fixed: exactly one reply per request.
 - **40 ms delay on the first message.** With TLS, the first small message after each
   login waited ~42 ms (broadcast latency went from 0.9 ms to 31 ms). Cause: Nagle's
   algorithm with delayed ACKs, triggered by the small TLS records sent right after the
@@ -418,8 +410,7 @@ rejected; a changed public key is detected; PUBKEY / GETKEY replies.
 - Files are read into memory whole; very large files (GBs) need a lot of RAM.
 - The server's own copy of the digests could be changed by someone who controls the
   server; signing digests with the uploader's private key would cover that.
-- End-to-end: the very first public key of a peer is trusted as the server gives it
-  (fingerprints should be compared in person); private keys are stored unencrypted in
+- End-to-end: a public key is trusted as the server gives it; private keys are stored unencrypted in
   `client/keys/`; BROADCAST and uploads are protected by TLS only (the server is their
   intended reader / storage); the server still sees who talks to whom, when, and sizes.
   Messages are not signed: the server cannot read or change an envelope, but since public
@@ -463,6 +454,7 @@ auto-registration, editing the stored file for the tamper demo).
 | 15 | "where can i loose marks"; "76 commits in one day is too much"; chose "Squash to one commit per step" | git history squashed to one commit per step (no code change) |
 | 16 | "The end-to-end encryption means that only the intended receiver should be able to see the decrypted data. If server is only a relay, then it should not be able to see it."; chose "cryptography package" and "MSG + SEND" | end-to-end encryption of MSG and SEND, curious-server demo, `tests/test_e2e.py` |
 | 17 | "Make the pdf of assignment 2 and 3 with prompts like the assignment 1" | report rewritten in the format of my A1 report |
+| 18 | "anything u can remove from these without efecting the requiremnt and that is extra from ur end"; chose the login timing trick, the 3-attempt lockout and the key fingerprint check | those three extras removed |
 
 Questions I asked the AI to understand the material (no code produced): "what is tls",
 the CN syllabus slides (to check which security topics my course covers), and the

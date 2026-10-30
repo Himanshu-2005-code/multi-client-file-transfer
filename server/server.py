@@ -129,11 +129,6 @@ def save_user(username, password_hash):
 users_lock = threading.Lock()
 
 
-# Used for unknown usernames so that a login attempt takes the same time
-# whether or not the user exists (no username guessing by timing).
-_DUMMY_HASH = hash_password("dummy password")
-
-
 def check_login(username, password):
     """
     True only if the user is registered AND the password matches.
@@ -142,14 +137,8 @@ def check_login(username, password):
     with users_lock:
         stored = load_users().get(username)
     if stored is None:
-        verify_password(password, _DUMMY_HASH)   # same work as a real check
         return False
     return verify_password(password, stored)
-
-
-# A connection is closed after this many failed logins, so a password
-# cannot be guessed by trying thousands of times on one connection.
-MAX_LOGIN_ATTEMPTS = 3
 
 
 # Usernames end up in users.txt ("name:hash") and in comma-separated LIST
@@ -187,9 +176,8 @@ def handle_register(sock, fields):
 def handle_login(sock, fields):
     """
     Returns (username, None) after sending LOGIN_OK, or (None, error_code)
-    WITHOUT sending anything: the caller sends the error, so that on the
-    last allowed attempt it can send TOO_MANY_ATTEMPTS instead (exactly one
-    reply per request).
+    without sending anything: the caller sends the error (exactly one reply
+    per request).
     """
     if len(fields) != 3:
         return None, "BAD_ARGS"
@@ -494,7 +482,6 @@ def handle_client(raw_sock, addr, tls_ctx):
     print(f"[TLS] {addr}: {sock.version()}, cipher {sock.cipher()[0]}")
 
     username = None
-    failed_logins = 0
     try:
         while True:
             try:
@@ -528,11 +515,6 @@ def handle_client(raw_sock, addr, tls_ctx):
                         pass
                     break
                 if error:
-                    failed_logins += 1
-                    if failed_logins >= MAX_LOGIN_ATTEMPTS:
-                        print(f"[!] {addr}: {failed_logins} failed logins, disconnecting")
-                        send_line(sock, "ERROR", "TOO_MANY_ATTEMPTS")
-                        break
                     send_line(sock, "ERROR", error)
                 continue
 

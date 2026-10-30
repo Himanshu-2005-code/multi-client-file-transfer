@@ -391,3 +391,20 @@ AI Use as a numbered list, Verification Performed, Challenges, Conclusion), incl
 encryption from step 16.
 
 **What I checked:** the report matches this log, the code and the measured results.
+
+---
+
+## Step 18: remove extras not needed by the requirements
+
+**My prompt:** "anything u can remove from these without efecting the requiremnt and that is extra from ur end"
+
+The AI listed what was extra and what had to stay (bug fixes and required parts). I chose to remove:
+"A2: login timing trick", "A2: 3-attempt lockout", "A2: key fingerprint check".
+
+**AI output:**
+- server: unknown users no longer checked against a dummy hash (still rejected with AUTH_FAILED)
+- server, client: no disconnect after 3 failed logins (every wrong attempt is still rejected)
+- client, e2e: no trust-on-first-use key fingerprints (end-to-end encryption unchanged)
+- tests and README updated (48 protocol checks, 17 end-to-end checks)
+
+**What I checked:** both test files pass; the requirement audit passes.

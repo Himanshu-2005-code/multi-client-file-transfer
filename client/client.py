@@ -179,8 +179,8 @@ def do_login(sock):
         print(f"Logged in as {username}")
         publish_my_key(sock, username)
         return username
-    if fields[1:] in (["TOO_MANY_ATTEMPTS"], ["DISCONNECTED"]):
-        sys.exit("Too many failed logins: the server closed the connection.")
+    if fields[1:] == ["DISCONNECTED"]:
+        sys.exit("The server closed the connection.")
     return None
 
 
@@ -193,30 +193,18 @@ def publish_my_key(sock, username):
     pub = e2e.public_key_b64(key)
     send_line(sock, "PUBKEY", pub)
     if expect("PUBKEY_OK")[0] == "PUBKEY_OK":
-        print(f"End-to-end key published. My key fingerprint: {e2e.fingerprint(pub)}")
+        print("End-to-end key published.")
 
 
 def get_peer_key(sock, user):
-    """The receiver's public key from the server, checked against the one we
-    saw the first time (the server could otherwise give us a fake key)."""
+    """The receiver's public key, fetched from the server."""
     send_line(sock, "GETKEY", user)
     fields = expect("KEY")
     if fields[0] != "KEY":
         if fields[1:] == ["NO_KEY"]:
             print(f"{user} has no end-to-end key yet (they must log in once with this client).")
         return None
-    pub = fields[2]
-    status = e2e.check_known_key(me["name"], user, pub)
-    if status == "CHANGED":
-        print(f"[!] {user}'s public key has CHANGED since last time "
-              f"(new fingerprint {e2e.fingerprint(pub)}). It may be a fake key. Not sending.\n"
-              f"    If {user} really made a new key, remove their line from "
-              f"client/keys/{me['name']}.known.")
-        return None
-    if status == "new":
-        print(f"First message to {user}: key fingerprint {e2e.fingerprint(pub)} "
-              f"remembered (compare it with {user} in person).")
-    return pub
+    return fields[2]
 
 
 def do_register(sock):

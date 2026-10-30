@@ -22,17 +22,12 @@ a different person.
 Keys: each user's key pair is made by their client on first login and kept in
 client/keys/<user>.key (the private key never leaves the client). The public
 key is published to the server with PUBKEY; senders fetch it with GETKEY.
-The server could hand out a fake public key, so the client remembers each
-peer's key fingerprint the first time (client/keys/<user>.known) and refuses to
-encrypt if it ever changes ("trust on first use"), and prints the fingerprint
-so two users can compare it in person.
 
 Needs the 'cryptography' package (pip install cryptography). The server does
 not: it never encrypts or decrypts these envelopes.
 """
 
 import base64
-import hashlib
 import os
 import struct
 
@@ -81,38 +76,8 @@ def public_key_b64(private_key):
     return base64.b64encode(der).decode("ascii")
 
 
-def fingerprint(pub_b64):
-    """Short SHA-256 fingerprint of a public key, for comparing by eye."""
-    h = hashlib.sha256(base64.b64decode(pub_b64)).hexdigest()[:32]
-    return ":".join(h[i:i + 4] for i in range(0, 32, 4))
-
-
 def load_public_key(pub_b64):
     return serialization.load_der_public_key(base64.b64decode(pub_b64))
-
-
-# ---------------------------------------------------------- peers' keys (TOFU)
-
-def check_known_key(owner, peer, pub_b64, keys_dir=KEYS_DIR):
-    """
-    Trust on first use. Returns "new" (first time: remembered), "same", or
-    "CHANGED" (a different key than before: possibly a fake key from the server).
-    """
-    os.makedirs(keys_dir, exist_ok=True)
-    path = os.path.join(keys_dir, f"{owner}.known")
-    fp = fingerprint(pub_b64)
-    known = {}
-    if os.path.isfile(path):
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                parts = line.split()
-                if len(parts) == 2:
-                    known[parts[0]] = parts[1]
-    if peer not in known:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(f"{peer} {fp}\n")
-        return "new"
-    return "same" if known[peer] == fp else "CHANGED"
 
 
 # ------------------------------------------------------- encrypt / decrypt
