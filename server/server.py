@@ -11,7 +11,6 @@ import argparse
 import base64
 import binascii
 import hashlib
-import hmac
 import os
 import re
 import socket
@@ -77,34 +76,26 @@ def send_exact(sock, data):
 # ---------------------------------------------------------------------------
 # Password hashing (passwords are never stored in plaintext)
 # ---------------------------------------------------------------------------
-# PBKDF2-HMAC-SHA256 from Python's hashlib: a deliberately slow, salted hash.
-# Stored as   pbkdf2_sha256$<iterations>$<salt hex>$<hash hex>
+# users.txt stores   <salt hex>$<SHA-256 of (salt + password) in hex>
+# - SHA-256 is one-way: the password cannot be recovered from the hash.
 # - salt: 16 random bytes per user, so two users with the same password get
-#   different hashes and precomputed tables (rainbow tables) are useless.
-# - iterations: makes every guess slow for someone who steals users.txt.
-HASH_SCHEME = "pbkdf2_sha256"
-HASH_ITERATIONS = 200_000
+#   different hashes and precomputed tables of common passwords are useless.
 
 
 def hash_password(password):
     salt = os.urandom(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, HASH_ITERATIONS)
-    return f"{HASH_SCHEME}${HASH_ITERATIONS}${salt.hex()}${digest.hex()}"
+    digest = hashlib.sha256(salt + password.encode("utf-8")).hexdigest()
+    return f"{salt.hex()}${digest}"
 
 
 def verify_password(password, stored):
     """Recompute the hash with the stored salt and compare."""
     try:
-        scheme, iterations, salt_hex, digest_hex = stored.split("$")
+        salt_hex, digest_hex = stored.split("$")
     except ValueError:
         return False
-    if scheme != HASH_SCHEME:
-        return False
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
-                                 bytes.fromhex(salt_hex), int(iterations))
-    # constant-time comparison: the time taken does not leak how many
-    # leading bytes matched
-    return hmac.compare_digest(digest.hex(), digest_hex)
+    digest = hashlib.sha256(bytes.fromhex(salt_hex) + password.encode("utf-8")).hexdigest()
+    return digest == digest_hex
 
 
 def load_users():

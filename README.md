@@ -11,7 +11,7 @@ but cannot read them.
 
 | A2 requirement | How it is done |
 |---|---|
-| 1. Authentication: no plaintext passwords; invalid attempts rejected | Passwords only travel inside TLS; the server stores salted PBKDF2-SHA256 hashes. New users must `REGISTER`; wrong password or unknown user gets `AUTH_FAILED`. |
+| 1. Authentication: no plaintext passwords; invalid attempts rejected | Passwords only travel inside TLS; the server stores salted SHA-256 hashes. New users must `REGISTER`; wrong password or unknown user gets `AUTH_FAILED`. |
 | 2. Certificates and secure communication | Our own CA and a server certificate made with **OpenSSL**. The client trusts only our CA, checks the server's certificate and name, and refuses untrusted servers. Each client connection has its own TLS session. |
 | 3. Secure messaging | MSG and BROADCAST travel inside each client's TLS session. **MSG is end-to-end encrypted**: the sender's client encrypts it for the receiver's public key (RSA-OAEP + AES-256-GCM), so the server, which only relays it, cannot read it. |
 | 4. Secure file transfer (100 KB, 1 MB, 10 MB) | UPLOAD, DOWNLOAD and SEND all go over TLS. **SEND (user to user) is end-to-end encrypted**, file name included. `experiments/test4_secure_transfer.py` runs all three sizes. |
@@ -160,8 +160,8 @@ Client                                        Server
   |  client checks: signed by ca.crt? not expired? issued for this address?
   |  (any check fails -> close, nothing else is sent)
   |<--- key exchange done, session keys ------->|   everything below is encrypted
-  |---- REGISTER|alice|pw1 -------------------->|   hash = PBKDF2(pw1, random salt)
-  |<--- REGISTER_OK|alice ----------------------|   users.txt: alice:pbkdf2_sha256$...
+  |---- REGISTER|alice|pw1 -------------------->|   hash = SHA-256(random salt + pw1)
+  |<--- REGISTER_OK|alice ----------------------|   users.txt: alice:<salt>$<hash>
   |---- LOGIN|alice|pw1 ----------------------->|   recompute hash with stored salt, compare
   |<--- LOGIN_OK|alice -------------------------|
 ```
@@ -230,8 +230,8 @@ the SEND diagram above run on the encrypted bytes.
   own keys. Client: trusts only `ca.crt`, requires a valid certificate and checks the
   server name; on failure it exits before sending anything. In practice TLS 1.3 with
   `TLS_AES_256_GCM_SHA384` is negotiated.
-- **Passwords.** Stored as `pbkdf2_sha256$200000$<16-byte salt>$<hash>`; compared with
-  `hmac.compare_digest`. An unknown user gets the same `AUTH_FAILED` reply as a wrong
+- **Passwords.** Stored as `<16-byte salt>$<SHA-256 of salt + password>`; a login
+  recomputes the hash with the stored salt and compares. An unknown user gets the same `AUTH_FAILED` reply as a wrong
   password.
 - **Integrity.** SHA-256 (`protocol.sha256_hex`) on every UPLOAD, DOWNLOAD and SEND, as
   in the diagrams above. The server records each upload's verified digest in
@@ -455,6 +455,7 @@ auto-registration, editing the stored file for the tamper demo).
 | 16 | "The end-to-end encryption means that only the intended receiver should be able to see the decrypted data. If server is only a relay, then it should not be able to see it."; chose "cryptography package" and "MSG + SEND" | end-to-end encryption of MSG and SEND, curious-server demo, `tests/test_e2e.py` |
 | 17 | "Make the pdf of assignment 2 and 3 with prompts like the assignment 1" | report rewritten in the format of my A1 report |
 | 18 | "anything u can remove from these without efecting the requiremnt and that is extra from ur end"; chose the login timing trick, the 3-attempt lockout and the key fingerprint check | those three extras removed |
+| 19 | "what are the extra tricks concepts that i have used are theree simple replacements"; "do all you think replace" | salted SHA-256 instead of PBKDF2; plain comparison instead of `hmac.compare_digest` |
 
 Questions I asked the AI to understand the material (no code produced): "what is tls",
 the CN syllabus slides (to check which security topics my course covers), and the

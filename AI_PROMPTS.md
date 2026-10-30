@@ -408,3 +408,16 @@ The AI listed what was extra and what had to stay (bug fixes and required parts)
 - tests and README updated (48 protocol checks, 17 end-to-end checks)
 
 **What I checked:** both test files pass; the requirement audit passes.
+
+---
+
+## Step 19: simpler replacements
+
+**My prompts:** "what are the extra tricks concepts that i have used are theree simple replacements and";
+"do all you think replace"
+
+**AI output:** password hashing simplified: `users.txt` now stores `<salt>$<SHA-256(salt + password)>`
+instead of PBKDF2 with 200,000 iterations, and the hashes are compared with `==` instead of
+`hmac.compare_digest`. Passwords are still never stored or sent in plaintext.
+
+**What I checked:** 48 protocol checks and 17 end-to-end checks pass; `users.txt` holds no plaintext password.
