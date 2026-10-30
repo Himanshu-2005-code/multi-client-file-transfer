@@ -11,8 +11,7 @@ Each capture object has:
 
 Capturing needs Administrator (Windows) or root (sudo, Mac/Linux).
 
-Quick test:  python capture.py 10            (Windows, Administrator terminal)
-             sudo python3 capture.py 10      (Mac / Linux)
+Used by analyzer.py (run that, not this file).
 """
 
 import collections
@@ -243,41 +242,3 @@ def open_capture(local_ip=None, interface=None):
     if sys.platform.startswith("linux"):
         return LinuxCapture(interface)
     sys.exit(f"[!] Capture on {sys.platform} is not supported.")
-
-
-def _quick_test(count):
-    from datetime import datetime
-    from packet_parser import ParseError, parse_packet, strip_link_layer
-
-    cap = open_capture(interface=sys.argv[2] if len(sys.argv) > 2 else None)
-    print(f"Capturing {count} packets ({cap.description}). Ctrl+C to stop.")
-    n = 0
-    try:
-        while n < count:
-            got = cap.read()
-            if got is None:
-                continue
-            ts, frame = got
-            ip_bytes, link = strip_link_layer(frame, cap.link_type)
-            if ip_bytes is None:
-                continue
-            n += 1
-            when = datetime.fromtimestamp(ts).strftime("%H:%M:%S.%f")[:-3]
-            try:
-                p = parse_packet(ip_bytes)
-            except ParseError as e:
-                print(f"{n:4} {when} {len(frame):5} bytes  (could not decode: {e})")
-                continue
-            ip = p["ip"]
-            t = p.get("tcp") or p.get("udp")
-            ports = f"{t['src_port']} -> {t['dst_port']}" if t else ""
-            print(f"{n:4} {when} {len(frame):5} bytes  {ip['src']:>15} -> {ip['dst']:<15} "
-                  f"{ip['protocol_name']:<5} {ports}")
-    except KeyboardInterrupt:
-        pass
-    finally:
-        cap.close()
-
-
-if __name__ == "__main__":
-    _quick_test(int(sys.argv[1]) if len(sys.argv) > 1 else 10)

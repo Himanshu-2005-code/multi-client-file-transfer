@@ -79,13 +79,11 @@ analyzer> show 1
 Tests (no capture, no admin needed):
 
 ```
-python tests/run_all.py            # all of them: 133 checks
+python tests/run_all.py            # all of them: 132 checks
 ```
 
 `test_capture.py` also runs the Windows and macOS capture code against fake
 operating-system calls, so that logic is checked on any computer.
-
-`python capture.py 10` is a minimal capture test that prints 10 packets, one line each.
 
 ## Filters
 
@@ -164,7 +162,7 @@ Each packet is timestamped when it is read (the BPF header's own timestamp on a 
 | Captured on | Before the IP header | Handling |
 |---|---|---|
 | Windows (raw socket) | nothing | bytes start at the IP header |
-| Mac Wi-Fi/Ethernet, Linux | Ethernet header, 14 bytes: destination MAC (6), source MAC (6), EtherType (2) | EtherType 0x0800 = IPv4 -> skip 14 bytes (18 with a VLAN tag); IPv6 (0x86DD) and ARP (0x0806) are skipped |
+| Mac Wi-Fi/Ethernet, Linux | Ethernet header, 14 bytes: destination MAC (6), source MAC (6), EtherType (2) | EtherType 0x0800 = IPv4 -> skip 14 bytes; IPv6 (0x86DD) and ARP (0x0806) are skipped |
 | Mac loopback (lo0) | 4-byte address family (little-endian) | 2 = IPv4 -> skip 4 bytes |
 
 **IPv4 header** (`parse_ipv4`, lecture L17 "IP Datagram format"): 20 bytes, plus options
@@ -219,14 +217,14 @@ length, so link-layer padding after the packet is not mistaken for data.
 
 ## Testing
 
-`python tests/run_all.py` runs 133 checks without capturing (parser 55, capture 22,
-analyzer 56): every header field on hand-made bytes, bad and short inputs, Ethernet / VLAN /
+`python tests/run_all.py` runs 132 checks without capturing (parser 54, capture 22,
+analyzer 56): every header field on hand-made bytes, bad and short inputs, Ethernet /
 loopback headers, a BPF buffer, the Windows and macOS capture code against fake OS calls,
 filters, the detail view (including an empty payload) and the commands.
 
 | Where | Result |
 |---|---|
-| Linux (Python 3.11, 3.12, 3.13) | 133/133 checks; live capture on `eth0` (web traffic, TCP 443) and `lo` (UDP, TCP handshake, ICMP port unreachable) |
+| Linux (Python 3.11, 3.12, 3.13) | 132/132 checks; live capture on `eth0` (web traffic, TCP 443) and `lo` (UDP, TCP handshake, ICMP port unreachable) |
 | Himanshu's laptop, Linux VM (Python 3.10) | all checks pass; without sudo: "Permission denied: run with sudo." |
 | Windows (Administrator) | live run by us, see the report |
 | macOS (sudo) | live run by Divyansh, see the report |
@@ -246,7 +244,7 @@ filters, the detail view (including an empty payload) and the commands.
 
 ## Use of AI
 
-AI tool: Claude (Anthropic), in the Claude app. The work was done in 16 small steps, one
+AI tool: Claude (Anthropic), in the Claude app. The work was done in 17 small steps, one
 prompt per step, one git commit per step (branch `a3`). Our prompts, word for word:
 
 | Step | Prompt | Result |
@@ -267,6 +265,7 @@ prompt per step, one git commit per step (branch `a3`). Our prompts, word for wo
 | 13 | "next" | capture tests with fake OS calls, run_all.py, tests on Python 3.10-3.13 |
 | 14 | "next" | final README, report PDF, zip |
 | 15 | "Make the pdf of assignment 2 and 3 with prompts like the assignment 1" | report rewritten in the format of our A1 report |
+| 16 | "anything u can remove from these without efecting the requiremnt and that is extra from ur end"; chose "A3: VLAN + quick test" | VLAN tag handling and the capture.py quick-test mode removed |
 
 Full details of each step (what was produced and what was checked) are in
 [`AI_PROMPTS.md`](AI_PROMPTS.md).

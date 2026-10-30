@@ -195,8 +195,7 @@ def parse_packet(data):
 # ---------------------------------------------------------------------------
 
 ETHERTYPE_IPV4 = 0x0800
-ETHERTYPE_VLAN = 0x8100
-ETHERTYPES = {0x0800: "IPv4", 0x0806: "ARP", 0x86DD: "IPv6", 0x8100: "VLAN"}
+ETHERTYPES = {0x0800: "IPv4", 0x0806: "ARP", 0x86DD: "IPv6"}
 
 
 def mac_to_str(six_bytes):
@@ -227,17 +226,12 @@ def strip_link_layer(frame, link_type):
         if len(frame) < 14:
             return None, {"type": "ethernet", "skip_reason": "frame too short"}
         dst_mac, src_mac, ethertype = struct.unpack("!6s6sH", frame[:14])
-        offset = 14
-        if ethertype == ETHERTYPE_VLAN and len(frame) >= 18:
-            # 802.1Q VLAN tag: 4 extra bytes, the real EtherType is in the last 2
-            ethertype = struct.unpack("!H", frame[16:18])[0]
-            offset = 18
         info = {"type": "ethernet", "src_mac": mac_to_str(src_mac), "dst_mac": mac_to_str(dst_mac),
                 "ethertype": ethertype}
         if ethertype != ETHERTYPE_IPV4:
             name = ETHERTYPES.get(ethertype, f"0x{ethertype:04x}")
             info["skip_reason"] = f"not IPv4 (EtherType {name})"
             return None, info
-        return frame[offset:], info
+        return frame[14:], info
 
     raise ValueError(f"unknown link type {link_type!r}")

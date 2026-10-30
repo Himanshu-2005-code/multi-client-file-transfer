@@ -175,10 +175,6 @@ def test_link_layer():
           info["src_mac"] == "11:22:33:44:55:66" and info["dst_mac"] == "aa:bb:cc:dd:ee:ff")
     check("Ethernet frame -> packet decodes as UDP", parse_packet(ip)["udp"]["dst_port"] == 53)
 
-    vlan = bytes.fromhex("aabbccddeeff" "112233445566" "8100" "0064" "0800")
-    ip, info = strip_link_layer(vlan + ip_pkt, "ethernet")
-    check("Ethernet with VLAN tag: 18-byte header removed", ip == ip_pkt)
-
     for label, ethertype in (("IPv6", "86dd"), ("ARP", "0806")):
         ip, info = strip_link_layer(bytes.fromhex("aabbccddeeff112233445566" + ethertype) + bytes(28), "ethernet")
         check(f"Ethernet {label} frame skipped", ip is None and label in info["skip_reason"])

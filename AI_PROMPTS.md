@@ -299,3 +299,15 @@ that were actually run (on Linux); the Windows and macOS capture code is describ
 fake operating-system calls.
 
 **What we checked:** the report matches this log and the code.
+
+---
+
+## Step 16: remove extras not needed by the requirements
+
+**Our prompt:** "anything u can remove from these without efecting the requiremnt and that is extra from ur end";
+chose "A3: VLAN + quick test".
+
+**AI output:** removed the 802.1Q VLAN tag handling (and its test) from `strip_link_layer()` and the
+`python capture.py 10` quick-test mode; README updated (132 checks).
+
+**What we checked:** `python tests/run_all.py` passes; a live capture with `analyzer.py` still works.
