@@ -284,3 +284,18 @@ field is extracted from the bytes, capture on each system, sample outputs, testi
 AI usage); `2024261_2024201_A3.zip` with all code, tests, README and this log.
 
 **What we checked:** the zip unpacks into a folder where `python tests/run_all.py` passes.
+
+---
+
+## Step 15: report in the format of our A1 report
+
+**Our prompt:** "Make the pdf of assignment 2 and 3 with prompts like the assignment 1" (with our A1
+report attached)
+
+**AI output:** `2024261_2024201_A3.pdf` rewritten in the format of our A1 technical report (LaTeX,
+table of contents; Introduction, Design, Implementation, Experimental Results, Prompts of AI Use as a
+numbered list, Verification Performed, Challenges, Conclusion). The report claims only the live captures
+that were actually run (on Linux); the Windows and macOS capture code is described as tested against
+fake operating-system calls.
+
+**What we checked:** the report matches this log and the code.

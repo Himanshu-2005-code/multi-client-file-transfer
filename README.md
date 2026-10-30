@@ -246,7 +246,7 @@ filters, the detail view (including an empty payload) and the commands.
 
 ## Use of AI
 
-AI tool: Claude (Anthropic), in the Claude app. The work was done in 15 small steps, one
+AI tool: Claude (Anthropic), in the Claude app. The work was done in 16 small steps, one
 prompt per step, one git commit per step (branch `a3`). Our prompts, word for word:
 
 | Step | Prompt | Result |
@@ -266,6 +266,7 @@ prompt per step, one git commit per step (branch `a3`). Our prompts, word for wo
 | 12 | "next" | interactive command line |
 | 13 | "next" | capture tests with fake OS calls, run_all.py, tests on Python 3.10-3.13 |
 | 14 | "next" | final README, report PDF, zip |
+| 15 | "Make the pdf of assignment 2 and 3 with prompts like the assignment 1" | report rewritten in the format of our A1 report |
 
 Full details of each step (what was produced and what was checked) are in
 [`AI_PROMPTS.md`](AI_PROMPTS.md).
