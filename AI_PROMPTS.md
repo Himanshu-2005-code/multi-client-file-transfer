@@ -421,3 +421,15 @@ instead of PBKDF2 with 200,000 iterations, and the hashes are compared with `==`
 `hmac.compare_digest`. Passwords are still never stored or sent in plaintext.
 
 **What I checked:** 48 protocol checks and 17 end-to-end checks pass; `users.txt` holds no plaintext password.
+
+---
+
+## Step 20: match my course notes
+
+**My prompts:** attached my CN notes (L6-L12) with "these ar the complete notes read these and thing that i should replace now";
+then "make A match my notes so that i can explain that to my TA"
+
+**AI output:** passwords are now stored as the SHA-256 message digest of the password (no salt, which my slides
+do not cover); README and report got a table mapping every security part of A2 to the Chapter 8 slides.
+
+**What I checked:** 48 protocol checks and 17 end-to-end checks pass; `users.txt` holds no plaintext password.

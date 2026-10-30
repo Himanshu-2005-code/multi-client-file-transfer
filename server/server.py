@@ -76,26 +76,20 @@ def send_exact(sock, data):
 # ---------------------------------------------------------------------------
 # Password hashing (passwords are never stored in plaintext)
 # ---------------------------------------------------------------------------
-# users.txt stores   <salt hex>$<SHA-256 of (salt + password) in hex>
-# - SHA-256 is one-way: the password cannot be recovered from the hash.
-# - salt: 16 random bytes per user, so two users with the same password get
-#   different hashes and precomputed tables of common passwords are useless.
+# users.txt stores   <SHA-256 message digest of the password, in hex>
+# (message digests, Chapter 8 / L9: a hash function is many-to-one and it is
+#  computationally infeasible to find a password m from its digest H(m)).
+# A login recomputes H(password) and compares it with the stored digest, so
+# the server never stores (or needs) the plaintext password.
 
 
 def hash_password(password):
-    salt = os.urandom(16)
-    digest = hashlib.sha256(salt + password.encode("utf-8")).hexdigest()
-    return f"{salt.hex()}${digest}"
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
 def verify_password(password, stored):
-    """Recompute the hash with the stored salt and compare."""
-    try:
-        salt_hex, digest_hex = stored.split("$")
-    except ValueError:
-        return False
-    digest = hashlib.sha256(bytes.fromhex(salt_hex) + password.encode("utf-8")).hexdigest()
-    return digest == digest_hex
+    """Recompute the digest of the typed password and compare."""
+    return hash_password(password) == stored
 
 
 def load_users():
@@ -143,7 +137,7 @@ def register_user(username, password):
         return "BAD_USERNAME"
     if not password:
         return "BAD_PASSWORD"
-    new_hash = hash_password(password)          # slow part, outside the lock
+    new_hash = hash_password(password)
     with users_lock:
         if username in load_users():
             return "USER_EXISTS"

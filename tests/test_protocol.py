@@ -71,7 +71,8 @@ def run_checks():
 
     users_txt = open(os.path.join(ROOT, "server", "users.txt"), encoding="utf-8").read()
     check("users.txt holds no plaintext passwords",
-          all(pw not in users_txt for pw in ("pw1", "pw2", "pw3")) and users_txt.count("$") == 3)
+          all(pw not in users_txt for pw in ("pw1", "pw2", "pw3"))
+          and all(len(line.split(":")[1]) == 64 for line in users_txt.split()))
 
     # --- login two users ---
     alice = connect()

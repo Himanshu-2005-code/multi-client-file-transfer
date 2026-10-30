@@ -11,7 +11,7 @@ but cannot read them.
 
 | A2 requirement | How it is done |
 |---|---|
-| 1. Authentication: no plaintext passwords; invalid attempts rejected | Passwords only travel inside TLS; the server stores salted SHA-256 hashes. New users must `REGISTER`; wrong password or unknown user gets `AUTH_FAILED`. |
+| 1. Authentication: no plaintext passwords; invalid attempts rejected | Passwords only travel inside TLS; the server stores only SHA-256 message digests of them. New users must `REGISTER`; wrong password or unknown user gets `AUTH_FAILED`. |
 | 2. Certificates and secure communication | Our own CA and a server certificate made with **OpenSSL**. The client trusts only our CA, checks the server's certificate and name, and refuses untrusted servers. Each client connection has its own TLS session. |
 | 3. Secure messaging | MSG and BROADCAST travel inside each client's TLS session. **MSG is end-to-end encrypted**: the sender's client encrypts it for the receiver's public key (RSA-OAEP + AES-256-GCM), so the server, which only relays it, cannot read it. |
 | 4. Secure file transfer (100 KB, 1 MB, 10 MB) | UPLOAD, DOWNLOAD and SEND all go over TLS. **SEND (user to user) is end-to-end encrypted**, file name included. `experiments/test4_secure_transfer.py` runs all three sizes. |
@@ -160,9 +160,9 @@ Client                                        Server
   |  client checks: signed by ca.crt? not expired? issued for this address?
   |  (any check fails -> close, nothing else is sent)
   |<--- key exchange done, session keys ------->|   everything below is encrypted
-  |---- REGISTER|alice|pw1 -------------------->|   hash = SHA-256(random salt + pw1)
-  |<--- REGISTER_OK|alice ----------------------|   users.txt: alice:<salt>$<hash>
-  |---- LOGIN|alice|pw1 ----------------------->|   recompute hash with stored salt, compare
+  |---- REGISTER|alice|pw1 -------------------->|   hash = SHA-256(pw1)
+  |<--- REGISTER_OK|alice ----------------------|   users.txt: alice:<hash>
+  |---- LOGIN|alice|pw1 ----------------------->|   recompute SHA-256(typed pw), compare
   |<--- LOGIN_OK|alice -------------------------|
 ```
 
@@ -219,6 +219,22 @@ the SEND diagram above run on the encrypted bytes.
 
 ## Security design
 
+### Concepts from the course notes (Chapter 8, Security)
+
+| What A2 does | Where it is in the CN slides |
+|---|---|
+| Server certificate signed by our own CA; client trusts only `ca.crt` | Public-key Certification Authorities (L9, slides 21-23) |
+| Rogue / expired certificate rejected before any password is sent | Man-in-the-middle attack on ap5.0 and its fix with certified public keys (L9, slides 12, 20-23) |
+| LOGIN sends the password, but only inside TLS | ap3.0 password authentication and the playback attack (L9, slides 6-9); TLS prevents playback |
+| `users.txt` stores SHA-256(password), never the password | Message digests: many-to-one, infeasible to find m from H(m) (L9, slides 16, 19) |
+| SHA-256 digest of every uploaded / downloaded / sent file, `INTEGRITY_FAIL` on mismatch | Message integrity with a hash H(m) (L8, slide 4; L9, slides 16-19); the Internet checksum is too weak (L9, slide 17) |
+| RSA-2048 key pair per user (public key published with PUBKEY/GETKEY) | Public key cryptography, RSA (L8, slides 16-27) |
+| AES-256 key for each message / file | Symmetric key cryptography, AES with 256-bit keys (L8, slides 11, 15) |
+| Random AES key encrypted with the receiver's RSA public key; the server only relays ciphertext | Secure e-mail confidentiality: K_S(m) and K_B+(K_S) (L10-1, slides 2-3); RSA session keys (L8, slide 28) |
+| TLS on every connection | Securing TCP connections: TLS (Chapter 8 outline) |
+
+SHA-256 belongs to the SHA family on L9, slide 19 (SHA-1 there gives 160 bits, SHA-256 gives 256 bits). AES is used in GCM mode, which also detects a changed ciphertext.
+
 - **Certificates (`certs/gen_certs.py`, OpenSSL).** We act as our own Certificate
   Authority: `ca.key` signs `server.crt`. The server certificate lists the names it is
   valid for (`localhost`, `127.0.0.1`, plus any IP given to the script) and can only be
@@ -230,8 +246,8 @@ the SEND diagram above run on the encrypted bytes.
   own keys. Client: trusts only `ca.crt`, requires a valid certificate and checks the
   server name; on failure it exits before sending anything. In practice TLS 1.3 with
   `TLS_AES_256_GCM_SHA384` is negotiated.
-- **Passwords.** Stored as `<16-byte salt>$<SHA-256 of salt + password>`; a login
-  recomputes the hash with the stored salt and compares. An unknown user gets the same `AUTH_FAILED` reply as a wrong
+- **Passwords.** Stored as `<SHA-256 message digest of the password>` (message
+  digests, Chapter 8); a login recomputes the digest of the typed password and compares. An unknown user gets the same `AUTH_FAILED` reply as a wrong
   password.
 - **Integrity.** SHA-256 (`protocol.sha256_hex`) on every UPLOAD, DOWNLOAD and SEND, as
   in the diagrams above. The server records each upload's verified digest in
@@ -456,6 +472,7 @@ auto-registration, editing the stored file for the tamper demo).
 | 17 | "Make the pdf of assignment 2 and 3 with prompts like the assignment 1" | report rewritten in the format of my A1 report |
 | 18 | "anything u can remove from these without efecting the requiremnt and that is extra from ur end"; chose the login timing trick, the 3-attempt lockout and the key fingerprint check | those three extras removed |
 | 19 | "what are the extra tricks concepts that i have used are theree simple replacements"; "do all you think replace" | salted SHA-256 instead of PBKDF2; plain comparison instead of `hmac.compare_digest` |
+| 20 | Attached my CN notes (L6-L12): "these ar the complete notes read these and thing that i should replace now"; "make A match my notes so that i can explain that to my TA" | passwords stored as plain SHA-256 message digests (no salt); table mapping each security part to the slides |
 
 Questions I asked the AI to understand the material (no code produced): "what is tls",
 the CN syllabus slides (to check which security topics my course covers), and the
