@@ -325,3 +325,17 @@ command-line options (-i, --ip, -c): the analyzer always captures on the default
 
 **What we checked:** `python tests/run_all.py` passes (114 checks); a live capture with `analyzer.py`
 on the default interface (TCP to port 443) works with `capture`, `list`, `filter`, `show`.
+
+---
+
+## Step 18: final check of the whole project
+
+**Our prompts:** "run and test both assignments fully on my laptop terminals"; "check the whole project"
+
+**AI output:** checked every requirement against the code; the README test table claimed Windows and
+macOS live runs "see the report", which the report did not show. Replaced with the Windows live
+capture results (run on Himanshu's laptop as Administrator) and stated that macOS was not run live;
+the report's Verification section got the same Windows results.
+
+**What we checked:** 114 checks pass; Windows live capture of 20 and 100 packets with `list`,
+`filter tcp port 80`, `filter udp` and `show`.

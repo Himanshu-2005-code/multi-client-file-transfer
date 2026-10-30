@@ -222,8 +222,8 @@ commands.
 |---|---|
 | Linux (Python 3.11, 3.12, 3.13) | 114/114 checks; live capture on `eth0` (web traffic, TCP 443) and `lo` (UDP, TCP handshake, ICMP port unreachable) |
 | Himanshu's laptop, Linux VM (Python 3.10) | all checks pass; without sudo: "Permission denied: run with sudo." |
-| Windows (Administrator) | live run by us, see the report |
-| macOS (sudo) | live run by Divyansh, see the report |
+| Windows (PowerShell as Administrator, Python 3.14) | live capture of 20 and 100 packets: ICMP, IGMP, DNS (UDP 53), QUIC (UDP 443), TCP incl. a plain HTTP request/response on port 80; `filter` and `show` checked |
+| macOS | not run live by us; BPF buffer splitting covered by `tests/test_capture.py` |
 
 ## Notes and limitations
 
